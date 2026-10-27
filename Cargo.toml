@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/droidpc-cli"]
+resolver = "3"
