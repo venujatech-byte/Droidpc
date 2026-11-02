@@ -1,6 +1,8 @@
 # RustDroid build roadmap
 
-Status: planning only. No application code exists in this checkout yet.
+Status: Rust workspace and initial read-only `doctor` report implemented.
+See [DOCTOR.md](DOCTOR.md) for usage, checks, exit codes and limitations.
+Container lifecycle and Android boot are not implemented yet.
 
 ## Goal and working agreement
 

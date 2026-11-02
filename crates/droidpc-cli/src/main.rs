@@ -1,91 +1,56 @@
-use std::{env, fs, io, process::ExitCode};
+mod doctor;
 
-fn main() -> io::Result<ExitCode> {
-    let mut args = env::args_os().skip(1);
+use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
-    let is_doctor =
-        args.next().as_deref() == Some(std::ffi::OsStr::new("doctor"));
-
-    if !is_doctor || args.next().is_some() {
-        eprintln!("Usage: droidpc-cli doctor");
-        return Ok(ExitCode::FAILURE);
+fn image_directory(
+    mut args: impl Iterator<Item = OsString>,
+) -> Option<PathBuf> {
+    if args.next()?.as_os_str() != "doctor" {
+        return None;
     }
-
-    let kernel = fs::read_to_string("/proc/sys/kernel/osrelease")?;
-
-    println!("Droidpc");
-    println!("Build OS: {}", env::consts::OS);
-    println!("Build architecture: {}", env::consts::ARCH);
-    println!("Running kernel: {}", kernel.trim());
-
-    match fs::read_to_string("/proc/filesystems") {
-        Ok(filesystems) if has_binderfs(&filesystems) => {
-            println!("BinderFS: available");
-        }
-        Ok(_) => {
-            println!("BinderFS: not currently registered");
-            println!("Check kernel support or module availability.");
-        }
-        Err(error) => {
-            eprintln!("BinderFS: unknown ({error})");
-            return Ok(ExitCode::FAILURE);
-        }
+    let path = match args.next() {
+        None => return Some("/var/lib/droidpc/images".into()),
+        Some(flag) if flag == "--images" => PathBuf::from(args.next()?),
+        Some(_) => return None,
+    };
+    if path.as_os_str().is_empty() || args.next().is_some() {
+        return None;
     }
-
-    // shortcut: assumes the usual mount; discover mounts for other layouts.
-    match fs::read_to_string("/sys/fs/cgroup/cgroup.controllers") {
-        Ok(controllers) => {
-            for name in ["cpu", "memory", "pids"] {
-                let status = if has_controller(&controllers, name) {
-                    "available"
-                } else {
-                    "not listed"
-                };
-                println!("Cgroup v2 root {name}: {status}");
-            }
-            println!("Resource-limit permissions: not verified");
-        }
-        Err(error) => {
-            eprintln!("Cgroup v2 root controllers: unknown ({error})");
-            return Ok(ExitCode::FAILURE);
-        }
-    }
-
-    Ok(ExitCode::SUCCESS)
+    Some(path)
 }
 
-fn has_binderfs(filesystems: &str) -> bool {
-    filesystems
-        .lines()
-        .any(|line| line.split_whitespace().last() == Some("binder"))
-}
-
-fn has_controller(controllers: &str, name: &str) -> bool {
-    controllers.split_whitespace().any(|entry| entry == name)
+fn main() -> ExitCode {
+    match image_directory(env::args_os().skip(1)) {
+        Some(images) => doctor::run(&images),
+        None => {
+            eprintln!("Usage: droidpc-cli doctor [--images DIR]");
+            ExitCode::from(2)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{has_binderfs, has_controller};
+    use super::*;
 
     #[test]
-    fn detects_exact_controller_names() {
-        for name in ["cpu", "memory", "pids"] {
-            assert!(has_controller("cpu\tmemory  pids\n", name));
+    fn accepts_only_doctor_and_an_optional_image_directory() {
+        let parse =
+            |args: &[&str]| image_directory(args.iter().map(OsString::from));
+        assert_eq!(parse(&["doctor"]), Some("/var/lib/droidpc/images".into()));
+        assert_eq!(
+            parse(&["doctor", "--images", "/tmp/my images"]),
+            Some("/tmp/my images".into())
+        );
+        for args in [
+            vec![],
+            vec!["unknown"],
+            vec!["doctor", "extra"],
+            vec!["doctor", "--images"],
+            vec!["doctor", "--images", ""],
+            vec!["doctor", "--images", "/tmp", "extra"],
+        ] {
+            assert_eq!(parse(&args), None);
         }
-        assert!(!has_controller("cpuset", "cpu"));
-        assert!(!has_controller("memory_extra", "memory"));
-        assert!(!has_controller("cpu io", "pids"));
-        assert!(!has_controller("", "memory"));
-    }
-
-    #[test]
-    fn detects_exact_binder_filesystem_name() {
-        assert!(has_binderfs("nodev\tbinder\n"));
-        assert!(has_binderfs("nodev   binder  \n\text4\n"));
-        assert!(!has_binderfs("nodev\tbinderfs\n"));
-        assert!(!has_binderfs("nodev\tbinder_extra\n"));
-        assert!(!has_binderfs("\text4\n"));
-        assert!(!has_binderfs(""));
     }
 }
