@@ -56,8 +56,9 @@ This guide does not authorize deployment, publishing or sending messages.
 6. `crates/droidpc-cli/src/doctor.rs`: current diagnostics.
 7. `scripts/probe-cgroups.py`, `scripts/probe-shell.py` and their tests.
 
-There is currently no `droidpc-container` crate, no production start/stop
-command, no full image mounting, and no Android framework boot.
+The workspace now contains an experimental `droidpc-container` image
+verifier. There is no production start/stop command or Android framework
+boot. A read-only FUSE staging experiment is documented separately.
 
 Do not reread huge images or hash them every turn. Use the recorded evidence
 unless images change or a verification gate explicitly requires a fresh hash.
@@ -383,10 +384,26 @@ mounts fail; success and failure leave no owned mounts/loops. Inject failure
 after system staging and after vendor staging. Record host mount state before
 and after. Raw-image hashes must remain unchanged for this first experiment.
 
+**Host experiment (2026-11-02):** read-only `fuse2fs` mounts with journal
+recovery disabled exposed both images; a separate read-only `/vendor` bind
+and `/apex/com.android.runtime` view let the guest shell run. Guest writes to
+both image mounts failed. `fuse2fs` needed its `fakeroot` option for this
+rootless check because Android properties include root-only files. All FUSE
+processes and temporary directories were removed afterward. This proves a
+read-only staging experiment and the guest path layout only. It does not prove
+kernel loop mounts, init startup, graphics or a production mount owner. See
+`docs/STAGING-PROBE.md` for the exact result and limitation.
+
 ## 9. Stage C — execute a shell from the staged images
 
 Implement namespace/child setup in `sandbox.rs`. Reuse evidence from the
 shell probe, but do not treat its four extracted files as the full rootfs.
+
+**Host experiment (2026-11-02):** `/system/bin/sh` has now run with the full
+read-only FUSE-backed system root, separate vendor view, and runtime APEX
+symlink, inside Bubblewrap namespaces. See `docs/STAGING-PROBE.md`. The
+linker still warns that `/linkerconfig/ld.config.txt` is absent. Do not
+promote this shell run to an Android-init boot result.
 
 - Make a private user/UID mapping decision appropriate to the privilege
   model. A single host-UID mapping cannot represent all Android service UIDs.
