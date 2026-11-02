@@ -44,6 +44,14 @@ FUSE permissions. A production kernel mount owned by a correctly mapped
 container process may behave differently. Establish that with the real UID
 mapping before relying on file visibility.
 
+An unprivileged `unshare --user --map-root-user --mount` experiment tried
+`mount -t ext4 -o loop,ro,norecovery` with the resolved system image and a
+temporary mountpoint that existed inside the namespace. The command failed
+with `ENOENT` (`No such file or directory`). No mount remained. The immediate
+cause was not isolated, so this is not evidence that ext4 or loop mounts are
+unsupported by the host. The mount path must be traced or retried with an
+authorized host-level mount helper before choosing the production backend.
+
 ## What this does not confirm
 
 This test used FUSE, not loop devices or kernel ext4 mounts. It did not test
@@ -54,8 +62,9 @@ The images remain unchanged, and FUSE is not selected as the production path.
 
 ## Next gate
 
-Before writing a loop/mount manager, resolve the safe privilege boundary and
-prove a disposable read-only kernel mount of both images with correct cleanup.
+Before writing a loop/mount manager, resolve the unexplained mount failure,
+choose a safe privilege boundary and prove disposable read-only kernel mounts
+of both images with correct cleanup.
 If this host's policy does not permit the operation, record the exact denial;
 do not weaken SELinux or host security. Then run the full-root shell with the
 intended UID mapping and APEX/linkerconfig paths. Only after those checks
