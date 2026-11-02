@@ -106,10 +106,8 @@ Additional read-only observations from the selected system image:
   Keep this compatibility initially; any memory-saving change requires a
   defined app set and measurements.
 
-Next implementation gate: a disposable, isolated shell preflight that
-exposes the selected root filesystem and runtime APEX paths read-only,
-executes one guest shell command, and proves cleanup. This will test the
-loader and mount layout before Android init, Binder, networking or graphics.
+The isolated shell preflight now passes using four extracted guest files;
+see [SHELL-PROBE.md](SHELL-PROBE.md). Full image mounting is still untested.
 A shell preflight is not an Android boot. Do not execute guest init directly
 on the host or expose writable host `/proc/sys`, `/sys` or debugfs trees.
 
