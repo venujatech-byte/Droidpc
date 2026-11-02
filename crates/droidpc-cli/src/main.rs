@@ -32,6 +32,25 @@ fn main() -> io::Result<ExitCode> {
         }
     }
 
+    // shortcut: assumes the usual mount; discover mounts for other layouts.
+    match fs::read_to_string("/sys/fs/cgroup/cgroup.controllers") {
+        Ok(controllers) => {
+            for name in ["cpu", "memory", "pids"] {
+                let status = if has_controller(&controllers, name) {
+                    "available"
+                } else {
+                    "not listed"
+                };
+                println!("Cgroup v2 root {name}: {status}");
+            }
+            println!("Resource-limit permissions: not verified");
+        }
+        Err(error) => {
+            eprintln!("Cgroup v2 root controllers: unknown ({error})");
+            return Ok(ExitCode::FAILURE);
+        }
+    }
+
     Ok(ExitCode::SUCCESS)
 }
 
@@ -41,9 +60,24 @@ fn has_binderfs(filesystems: &str) -> bool {
         .any(|line| line.split_whitespace().last() == Some("binder"))
 }
 
+fn has_controller(controllers: &str, name: &str) -> bool {
+    controllers.split_whitespace().any(|entry| entry == name)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::has_binderfs;
+    use super::{has_binderfs, has_controller};
+
+    #[test]
+    fn detects_exact_controller_names() {
+        for name in ["cpu", "memory", "pids"] {
+            assert!(has_controller("cpu\tmemory  pids\n", name));
+        }
+        assert!(!has_controller("cpuset", "cpu"));
+        assert!(!has_controller("memory_extra", "memory"));
+        assert!(!has_controller("cpu io", "pids"));
+        assert!(!has_controller("", "memory"));
+    }
 
     #[test]
     fn detects_exact_binder_filesystem_name() {
