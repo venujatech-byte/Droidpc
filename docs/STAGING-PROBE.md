@@ -112,6 +112,12 @@ This failure identifies a missing probe prerequisite, not an image or APEX
 incompatibility. The final config is still unverified in a valid Android
 property environment.
 
+A follow-up read-only `getprop ro.vndk.version` check inside Bubblewrap emitted
+the expected missing-linkerconfig warnings and no property value. This
+confirms the property area is absent in this probe. Do not work around it by
+hard-coding the property into the host environment: Android properties use a
+guest shared property area, and that would not validate normal boot behavior.
+
 ## What this does not confirm
 
 This test used FUSE for the full-image shell; the later kernel mount check did
@@ -126,10 +132,10 @@ The images remain unchanged, and FUSE is not selected as the production path.
 Before writing a loop/mount manager, choose a safe privilege boundary. The
 privileged disposable read-only kernel mount and cleanup now pass. Keep the
 base images read-only. Do not repeat the isolated final linkerconfig command
-as-is: first design a disposable probe that provides Android's property area
-and boot properties without exposing host-global init effects. Inspect host
-AVCs and resolve the `unlabeled_t` contexts; do not weaken host security or
-relabel source images. Only after those checks should Droidpc implement
-mounts and start init in Rust.
+as-is. Next, inspect the matching Android init/property-service startup path
+and design a disposable way to initialize guest properties while blocking
+host-global init effects. Inspect host AVCs and resolve the `unlabeled_t`
+contexts; do not weaken host security or relabel source images. Only after
+those checks should Droidpc implement mounts and start init in Rust.
 
 Android init and the container are still not running.
