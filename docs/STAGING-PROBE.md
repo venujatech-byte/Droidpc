@@ -163,6 +163,14 @@ read-write cgroup2 mount over private `/sys` also failed with `permission
 denied`. This confirms the cgroup mount boundary for the tested unprivileged
 Bubblewrap user namespace only. It does not prove the behavior of a privileged
 runtime or an Android init process with different capabilities.
+
+**Private init inputs (2026-11-04):** a shell-only Bubblewrap check replaced
+`/proc/cmdline` with a temporary `androidboot.init_rc` entry and exposed
+`/proc/sys/kernel/kptr_restrict` as a regular file on private tmpfs. Reading
+and writing the value `4` succeeded there. No Android process ran. This
+validates the probe plumbing only; second-stage init still needs a bounded
+run with the stock init directories masked and system/vendor mounted
+read-only.
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
