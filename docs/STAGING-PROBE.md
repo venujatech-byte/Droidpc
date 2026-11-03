@@ -65,6 +65,12 @@ did not contain SELinux labels. Read-only `debugfs` inspection found
 host-policy/context investigation; do not relabel or modify these images to
 silence it.
 
+On the Fedora host, `getenforce` reported `Enforcing`. `ls -Z` showed
+`system_u:object_r:unlabeled_t:s0` for the mounted roots and checked guest
+paths, despite the Android xattrs in the image. Effective host contexts and
+policy access remain unresolved; do not weaken host SELinux or relabel the
+images.
+
 ## What this does not confirm
 
 This test used FUSE for the full-image shell; the later kernel mount check did
@@ -77,9 +83,9 @@ The images remain unchanged, and FUSE is not selected as the production path.
 ## Next gate
 
 Before writing a loop/mount manager, choose a safe privilege boundary. The
-privileged disposable read-only kernel mount and cleanup now pass. Record the
-host SELinux mode and inspect effective contexts/AVCs for the mounted guest;
-do not weaken host security or relabel source images. Then run the full-root
+privileged disposable read-only kernel mount and cleanup now pass. Inspect
+host AVCs and resolve the `unlabeled_t` contexts for the mounted guest; do not
+weaken host security or relabel source images. Then run the full-root
 shell with the intended UID mapping and APEX/linkerconfig paths. Only after
 those checks should Droidpc implement the mounts in Rust.
 
