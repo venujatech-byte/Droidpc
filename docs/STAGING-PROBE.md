@@ -171,6 +171,14 @@ and writing the value `4` succeeded there. No Android process ran. This
 validates the probe plumbing only; second-stage init still needs a bounded
 run with the stock init directories masked and system/vendor mounted
 read-only.
+
+**Second-stage property probe (2026-11-04):** init started and logged
+properties loaded from the selected images, including `ro.product.device`
+`android_guest_x86_64` and `ro.product.brand` `android_guest`. It aborted before
+processing the custom `early-init` action because private `/dev/socket` did
+not exist; property-service socket creation failed. The images remained
+read-only and the probe returned before running the `getprop` helper. Add
+`/dev/socket` inside the private `/dev` mount, then retry.
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
