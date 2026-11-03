@@ -149,6 +149,11 @@ minimal boot script. First verify Bubblewrap can replace `/proc/sys` and
 process. Then provide the private `kptr_restrict` file and keep cgroups
 isolated before considering init. Do not run init until host-global effects
 are blocked.
+
+The mount-only check passed on the developer host: `/proc/sys` and `/sys`
+both appeared as separate `tmpfs` mounts inside Bubblewrap. This verifies
+those paths are hidden for that namespace; it does not verify cgroup
+isolation or Android init behavior.
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
