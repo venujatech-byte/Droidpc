@@ -177,8 +177,15 @@ properties loaded from the selected images, including `ro.product.device`
 `android_guest_x86_64` and `ro.product.brand` `android_guest`. It aborted before
 processing the custom `early-init` action because private `/dev/socket` did
 not exist; property-service socket creation failed. The images remained
-read-only and the probe returned before running the `getprop` helper. Add
-`/dev/socket` inside the private `/dev` mount, then retry.
+read-only and the probe returned before running the `getprop` helper. A retry
+created `/dev/socket`; init then started the property service and advanced
+to `SetupMountNamespaces`, which failed with `Read-only file system`.
+
+Android 13 `mount_namespace.cpp` creates `/mnt/user` and `/mnt/installer`
+during this setup. Since the image root is read-only, expose `/mnt` as a
+private tmpfs in Bubblewrap before starting init. This keeps those temporary
+mount points out of the image and host. See
+[`mount_namespace.cpp`](https://android.googlesource.com/platform/system/core/%2B/832f9f1dbd2fd6f33f27622d7fd51e4a92534b31/init/mount_namespace.cpp).
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
