@@ -154,6 +154,15 @@ The mount-only check passed on the developer host: `/proc/sys` and `/sys`
 both appeared as separate `tmpfs` mounts inside Bubblewrap. This verifies
 those paths are hidden for that namespace; it does not verify cgroup
 isolation or Android init behavior.
+
+**Cgroup namespace check (2026-11-04):** Bubblewrap reported `0::/` inside
+the new cgroup namespace. A read-only bind of host `/sys/fs/cgroup` stayed
+read-only; remounting it writable failed with `permission denied`, and opening
+`cgroup.procs` for writing failed with `EACCES` without writing data. A new
+read-write cgroup2 mount over private `/sys` also failed with `permission
+denied`. This confirms the cgroup mount boundary for the tested unprivileged
+Bubblewrap user namespace only. It does not prove the behavior of a privileged
+runtime or an Android init process with different capabilities.
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
