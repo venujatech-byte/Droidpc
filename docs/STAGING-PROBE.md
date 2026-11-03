@@ -54,22 +54,33 @@ support is missing from the host. A privileged helper or a different safe
 mount boundary still needs separate evaluation before choosing the production
 backend.
 
+**Privileged kernel-mount retry (2026-11-03):** with sudo, both images
+mounted in a private mount namespace using `loop,ro,norecovery`. `findmnt`
+reported `ro,relatime,seclabel,norecovery`, and the system/vendor
+`build.prop` files were readable. The temporary mounts and loop devices were
+confirmed gone after the namespace exited. `mount` warned that the filesystems
+did not contain SELinux labels. Read-only `debugfs` inspection found
+`security.selinux` xattrs on each image root and the checked build properties
+(`rootfs`, `system_file`, and `vendor_file` labels). The warning needs a
+host-policy/context investigation; do not relabel or modify these images to
+silence it.
+
 ## What this does not confirm
 
-This test used FUSE, not loop devices or kernel ext4 mounts. It did not test
-loop ownership/autoclear, mount crash recovery, SELinux policy, Android init,
-Binder allocation, guest cgroups, networking, graphics, app launch, or CPU/RAM
-use. Bubblewrap was a temporary inspection harness, not a Droidpc dependency.
+This test used FUSE for the full-image shell; the later kernel mount check did
+not run Android. It did not test loop cleanup after crashes, SELinux policy,
+Android init, Binder allocation, guest cgroups, networking, graphics, app
+launch, or CPU/RAM use. Bubblewrap was a temporary inspection harness, not a
+Droidpc dependency.
 The images remain unchanged, and FUSE is not selected as the production path.
 
 ## Next gate
 
-Before writing a loop/mount manager, resolve the unexplained mount failure,
-choose a safe privilege boundary and prove disposable read-only kernel mounts
-of both images with correct cleanup.
-If this host's policy does not permit the operation, record the exact denial;
-do not weaken SELinux or host security. Then run the full-root shell with the
-intended UID mapping and APEX/linkerconfig paths. Only after those checks
-should Droidpc implement the mounts in Rust.
+Before writing a loop/mount manager, choose a safe privilege boundary. The
+privileged disposable read-only kernel mount and cleanup now pass. Record the
+host SELinux mode and inspect effective contexts/AVCs for the mounted guest;
+do not weaken host security or relabel source images. Then run the full-root
+shell with the intended UID mapping and APEX/linkerconfig paths. Only after
+those checks should Droidpc implement the mounts in Rust.
 
 Android init and the container are still not running.
