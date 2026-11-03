@@ -44,13 +44,15 @@ FUSE permissions. A production kernel mount owned by a correctly mapped
 container process may behave differently. Establish that with the real UID
 mapping before relying on file visibility.
 
-An unprivileged `unshare --user --map-root-user --mount` experiment tried
-`mount -t ext4 -o loop,ro,norecovery` with the resolved system image and a
-temporary mountpoint that existed inside the namespace. The command failed
-with `ENOENT` (`No such file or directory`). No mount remained. The immediate
-cause was not isolated, so this is not evidence that ext4 or loop mounts are
-unsupported by the host. The mount path must be traced or retried with an
-authorized host-level mount helper before choosing the production backend.
+An `unshare --user --map-root-user --mount` retry traced the same read-only
+loop mount. The image and temporary mountpoint existed, but opening
+`/dev/loop-control` and the loop devices returned `EACCES` inside the user
+namespace. `mount` then printed the misleading message “No such file or
+directory.” No mount remained. This identifies a loop-device permission
+boundary in the current namespace setup; it does not show that ext4 or loop
+support is missing from the host. A privileged helper or a different safe
+mount boundary still needs separate evaluation before choosing the production
+backend.
 
 ## What this does not confirm
 
