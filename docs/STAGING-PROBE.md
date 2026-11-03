@@ -118,6 +118,17 @@ confirms the property area is absent in this probe. Do not work around it by
 hard-coding the property into the host environment: Android properties use a
 guest shared property area, and that would not validate normal boot behavior.
 
+The matching Android 13 init source confirms `PropertyInit()` creates the
+guest property area and loads partition boot properties before init parses
+its scripts. Init supports selecting a custom boot script through
+`ro.boot.init_rc`, which could avoid importing the stock rc files. However,
+second-stage init also performs built-in setup before running those scripts,
+including cgroup setup and an early-init trigger. This is a possible route
+for a minimal probe, not yet a safe runnable command. See Android 13
+[`property_service.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/tags/android-13.0.0_r27/init/property_service.cpp),
+[`init.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/init.cpp),
+and [`init/README.md`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/README.md).
+
 ## What this does not confirm
 
 This test used FUSE for the full-image shell; the later kernel mount check did
@@ -132,11 +143,12 @@ The images remain unchanged, and FUSE is not selected as the production path.
 Before writing a loop/mount manager, choose a safe privilege boundary. The
 privileged disposable read-only kernel mount and cleanup now pass. Keep the
 base images read-only. Do not repeat the isolated final linkerconfig command
-as-is. Next, inspect the matching Android init/property-service startup path
-and design a disposable way to initialize guest properties while blocking
-host-global init effects. Inspect host AVCs and resolve the `unlabeled_t`
-contexts; do not weaken host security or relabel source images. Only after
-those checks should Droidpc implement mounts and start init in Rust.
+as-is. Next, design a disposable Android 13 second-stage init probe using a
+minimal boot script. First establish how to isolate its built-in cgroup and
+sysctl operations; do not run it until host-global effects are blocked.
+Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
+security or relabel source images. Only after those checks should Droidpc
+implement mounts and start init in Rust.
 
 Read-only inspection of the selected image's generic `init.rc` found writes
 to `/proc/sys/kernel/sysrq` and `/proc/sys/kernel/modprobe` during
