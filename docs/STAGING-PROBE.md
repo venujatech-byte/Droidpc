@@ -71,6 +71,21 @@ paths, despite the Android xattrs in the image. Effective host contexts and
 policy access remain unresolved; do not weaken host SELinux or relabel the
 images.
 
+**Kernel-mounted guest shell (2026-11-03):** Bubblewrap isolated the guest
+with user/PID/IPC/UTS/network namespaces. It ran `/system/bin/sh` from the
+read-only kernel mounts, with vendor mounted separately and the runtime APEX
+exposed under `/apex`.
+The shell read both build properties and printed
+`DROIDPC_KERNEL_MOUNT_SHELL_OK`. The linker still warned that
+`/linkerconfig/ld.config.txt` was missing. A follow-up audit query found no
+matching AVCs. Android init was not started.
+
+The guest's generic `/system/etc/init/hw/init.rc` creates bootstrap/default
+linkerconfig directories, runs
+`/system/bin/bootstrap/linkerconfig --target /linkerconfig/bootstrap`, then
+starts `apexd --bootstrap` and updates linker config. This sequence has not
+been run; no guest init configuration was copied into Droidpc.
+
 ## What this does not confirm
 
 This test used FUSE for the full-image shell; the later kernel mount check did
