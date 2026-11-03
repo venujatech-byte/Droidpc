@@ -91,9 +91,10 @@ Droidpc.
 the isolated shell with only a temporary `/linkerconfig` writable. It created
 a nonempty `ld.config.txt`, and a second shell ran. The first shell still
 warned because its config did not exist at startup. Linkerconfig also reported
-that `/apex/apex-info-list.xml` was missing. APEXd bootstrap and the final
-linkerconfig update remain untested, so this generated file is not considered
-the boot-ready configuration.
+that `/apex/apex-info-list.xml` was missing. A later isolated `apexd
+--bootstrap` run exited successfully and created that file in temporary
+`/apex`. Its initial linker warning remains expected. The final linkerconfig
+update has not run, so generated config is not considered boot-ready.
 
 ## What this does not confirm
 
@@ -108,10 +109,10 @@ The images remain unchanged, and FUSE is not selected as the production path.
 
 Before writing a loop/mount manager, choose a safe privilege boundary. The
 privileged disposable read-only kernel mount and cleanup now pass. Keep the
-base images read-only; test APEXd bootstrap and final linkerconfig generation
-with only temporary `/apex`, `/data` and linkerconfig state writable. Inspect
-host AVCs and resolve the `unlabeled_t` contexts; do not weaken host security
-or relabel source images. Only after those checks should Droidpc implement
-mounts and start init in Rust.
+base images read-only; test the final linkerconfig update with only temporary
+`/apex`, `/data` and linkerconfig state writable. Inspect host AVCs and resolve
+the `unlabeled_t` contexts; do not weaken host security or relabel source
+images. Only after those checks should Droidpc implement mounts and start
+init in Rust.
 
 Android init and the container are still not running.
