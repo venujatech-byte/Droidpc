@@ -83,8 +83,17 @@ matching AVCs. Android init was not started.
 The guest's generic `/system/etc/init/hw/init.rc` creates bootstrap/default
 linkerconfig directories, runs
 `/system/bin/bootstrap/linkerconfig --target /linkerconfig/bootstrap`, then
-starts `apexd --bootstrap` and updates linker config. This sequence has not
-been run; no guest init configuration was copied into Droidpc.
+starts `apexd --bootstrap` and updates linker config. Only linkerconfig
+generation has been probed; no guest init configuration was copied into
+Droidpc.
+
+**Linkerconfig probe (2026-11-03):** the bootstrap linkerconfig binary ran in
+the isolated shell with only a temporary `/linkerconfig` writable. It created
+a nonempty `ld.config.txt`, and a second shell ran. The first shell still
+warned because its config did not exist at startup. Linkerconfig also reported
+that `/apex/apex-info-list.xml` was missing. APEXd bootstrap and the final
+linkerconfig update remain untested, so this generated file is not considered
+the boot-ready configuration.
 
 ## What this does not confirm
 
@@ -98,10 +107,11 @@ The images remain unchanged, and FUSE is not selected as the production path.
 ## Next gate
 
 Before writing a loop/mount manager, choose a safe privilege boundary. The
-privileged disposable read-only kernel mount and cleanup now pass. Inspect
-host AVCs and resolve the `unlabeled_t` contexts for the mounted guest; do not
-weaken host security or relabel source images. Then run the full-root
-shell with the intended UID mapping and APEX/linkerconfig paths. Only after
-those checks should Droidpc implement the mounts in Rust.
+privileged disposable read-only kernel mount and cleanup now pass. Keep the
+base images read-only; test APEXd bootstrap and final linkerconfig generation
+with only temporary `/apex`, `/data` and linkerconfig state writable. Inspect
+host AVCs and resolve the `unlabeled_t` contexts; do not weaken host security
+or relabel source images. Only after those checks should Droidpc implement
+mounts and start init in Rust.
 
 Android init and the container are still not running.
