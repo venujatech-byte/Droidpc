@@ -144,8 +144,11 @@ Before writing a loop/mount manager, choose a safe privilege boundary. The
 privileged disposable read-only kernel mount and cleanup now pass. Keep the
 base images read-only. Do not repeat the isolated final linkerconfig command
 as-is. Next, design a disposable Android 13 second-stage init probe using a
-minimal boot script. First establish how to isolate its built-in cgroup and
-sysctl operations; do not run it until host-global effects are blocked.
+minimal boot script. First verify Bubblewrap can replace `/proc/sys` and
+`/sys` with private tmpfs mounts; this mount-only check starts no Android
+process. Then provide the private `kptr_restrict` file and keep cgroups
+isolated before considering init. Do not run init until host-global effects
+are blocked.
 Inspect host AVCs and resolve the `unlabeled_t` contexts; do not weaken host
 security or relabel source images. Only after those checks should Droidpc
 implement mounts and start init in Rust.
@@ -156,5 +159,15 @@ to `/proc/sys/kernel/sysrq` and `/proc/sys/kernel/modprobe` during
 the stock init sequence in the current probe: a mount and PID namespace do
 not guarantee isolation of host-global kernel tunables. Any future init probe
 must prevent those writes from reaching the host.
+
+The Android 13 second-stage init also runs `SetKptrRestrictAction` before
+`early-init`. It writes `/proc/sys/kernel/kptr_restrict` and aborts if the
+value cannot be set in the range 2 through 4. An empty private `/proc/sys`
+would therefore stop init before a custom script could run. A property probe
+must provide this path as private writable state, while keeping the host's
+real sysctl tree hidden. Its cgroup setup also runs before `early-init` and
+must not be allowed to write into the host cgroup tree. See Android 13
+[`security.cpp`](https://android.googlesource.com/platform/system/core/%2B/95cc6b6f013bc52818dd7eda89632f4fdf21285f/init/security.cpp)
+and [`init.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/init.cpp).
 
 Android init and the container are still not running.
