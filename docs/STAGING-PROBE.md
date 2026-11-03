@@ -93,8 +93,24 @@ a nonempty `ld.config.txt`, and a second shell ran. The first shell still
 warned because its config did not exist at startup. Linkerconfig also reported
 that `/apex/apex-info-list.xml` was missing. A later isolated `apexd
 --bootstrap` run exited successfully and created that file in temporary
-`/apex`. Its initial linker warning remains expected. The final linkerconfig
-update has not run, so generated config is not considered boot-ready.
+`/apex`. Its initial linker warning remains expected. A subsequent run
+mounted the bootstrap config and let apexd mount all available APEX modules.
+The final linkerconfig process aborted with status 134. Its captured fatal
+message was `SANITIZER_DEFAULT_VENDOR is not defined`.
+
+This probe did not start Android init or its property service. The temporary
+Bubblewrap `/dev` therefore had no Android property area. The selected vendor
+image's `build.prop` does contain `ro.vndk.version=33`; linkerconfig reads
+that value through Android system properties, not by parsing `build.prop`
+itself. Without it, linkerconfig skips loading vendor VNDK and sanitizer
+variables, then fails while generating namespaces. AOSP init normally loads
+partition build properties before its `update_linker_config` action. See
+[`property_service.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/property_service.cpp),
+[`init.rc`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android14-gsi/rootdir/init.rc),
+and [`variableloader.cc`](https://android.googlesource.com/platform/system/linkerconfig/%2B/refs/heads/android-s-v2-beta-3/generator/variableloader.cc).
+This failure identifies a missing probe prerequisite, not an image or APEX
+incompatibility. The final config is still unverified in a valid Android
+property environment.
 
 ## What this does not confirm
 
@@ -109,10 +125,11 @@ The images remain unchanged, and FUSE is not selected as the production path.
 
 Before writing a loop/mount manager, choose a safe privilege boundary. The
 privileged disposable read-only kernel mount and cleanup now pass. Keep the
-base images read-only; test the final linkerconfig update with only temporary
-`/apex`, `/data` and linkerconfig state writable. Inspect host AVCs and resolve
-the `unlabeled_t` contexts; do not weaken host security or relabel source
-images. Only after those checks should Droidpc implement mounts and start
-init in Rust.
+base images read-only. Do not repeat the isolated final linkerconfig command
+as-is: first design a disposable probe that provides Android's property area
+and boot properties without exposing host-global init effects. Inspect host
+AVCs and resolve the `unlabeled_t` contexts; do not weaken host security or
+relabel source images. Only after those checks should Droidpc implement
+mounts and start init in Rust.
 
 Android init and the container are still not running.
