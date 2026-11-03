@@ -106,7 +106,7 @@ itself. Without it, linkerconfig skips loading vendor VNDK and sanitizer
 variables, then fails while generating namespaces. AOSP init normally loads
 partition build properties before its `update_linker_config` action. See
 [`property_service.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/property_service.cpp),
-[`init.rc`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android14-gsi/rootdir/init.rc),
+[`init.rc`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/rootdir/init.rc),
 and [`variableloader.cc`](https://android.googlesource.com/platform/system/linkerconfig/%2B/refs/heads/android-s-v2-beta-3/generator/variableloader.cc).
 This failure identifies a missing probe prerequisite, not an image or APEX
 incompatibility. The final config is still unverified in a valid Android
@@ -137,5 +137,12 @@ and design a disposable way to initialize guest properties while blocking
 host-global init effects. Inspect host AVCs and resolve the `unlabeled_t`
 contexts; do not weaken host security or relabel source images. Only after
 those checks should Droidpc implement mounts and start init in Rust.
+
+Read-only inspection of the selected image's generic `init.rc` found writes
+to `/proc/sys/kernel/sysrq` and `/proc/sys/kernel/modprobe` during
+`early-init`, plus scheduler and network sysctl writes later. Do not launch
+the stock init sequence in the current probe: a mount and PID namespace do
+not guarantee isolation of host-global kernel tunables. Any future init probe
+must prevent those writes from reaching the host.
 
 Android init and the container are still not running.
