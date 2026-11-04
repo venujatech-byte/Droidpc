@@ -41,6 +41,10 @@ checks. The first supported machine is the developer's Fedora PC.
 | APEX | Android modules loaded early in startup. |
 | init | Android's first process; it starts Android services. |
 | Probe | A limited test of one requirement, not the finished app. |
+| ueventd | Android's device manager; it creates device entries from kernel events. |
+| Wayland | The display system used by the Linux desktop session. |
+| HAL | An Android interface that connects a system service to hardware. |
+| overlay | A writable layer placed over read-only files without editing them. |
 
 ## 3. Begin on the development PC
 
@@ -116,6 +120,25 @@ install Android, change the base images, or create a persistent container.
 The host SELinux policy remains enforcing; effective labels on the mounted
 images still need investigation.
 
+### Why the checks happen in this order
+
+Android startup depends on earlier pieces. A shell must load before init can
+run; init needs properties and linker configuration; services need devices,
+Binder and process groups; the display needs a working graphics HAL. Testing
+the screen before the startup foundation works would hide the first failure
+under many later ones.
+
+The Rust workspace currently has a small CLI and a container crate for
+checking image files. It does not yet own mount points, launch init, allocate
+Binder devices, or show a window. Python and shell scripts are development
+probes because they make it easier to test Linux behavior before adding
+privileged Rust code.
+
+An Android image is not the Linux kernel. It contains Android programs and
+libraries. The guest uses the host kernel through namespaces and mounts.
+That saves the cost of running a second kernel, but Android still needs a
+compatible set of devices, system calls, properties and hardware interfaces.
+
 Detailed evidence is in [SHELL-PROBE.md](SHELL-PROBE.md),
 [STAGING-PROBE.md](STAGING-PROBE.md), and
 [CGROUP-PROBE.md](CGROUP-PROBE.md). Older “next step” paragraphs in those
@@ -149,6 +172,33 @@ can be fixed. If it appears, the next checkpoint is to inspect the `on init`
 work and design real device discovery. Do not keep rerunning this same probe
 after it passes; each later checkpoint will have its own focused test.
 
+Common output meanings:
+
+| Output | Meaning |
+| --- | --- |
+| `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
+| `INIT_TRIGGER_MISSING` | Init reached early-init but did not run the later `init` trigger. |
+| `INIT_PROBE_STATUS=124` | The 12 second timer stopped the probe as designed. |
+| `INIT_PROBE_STATUS=129` | Init or a child ended from signal 1; inspect the log for its earlier fatal error. |
+| `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
+
+When reporting a failure, copy the command and all output from the status
+line through the Android log. Do not paste only the final linker warning;
+look above it for the first failed action. The probe is designed to clean up
+on normal exit and timeout. Afterward, the mount checks below can confirm
+whether any image mounts remain.
+
+```sh
+findmnt -rn -t ext4 | grep droidpc-mount \
+  || echo "No Droidpc mounts remain"
+losetup -a | grep -E 'system.img|vendor.img' \
+  || echo "No image loop devices remain"
+```
+
+These checks only inspect mount and loop-device listings. They do not alter
+them. Do not unmount an entry unless you have confirmed it belongs to this
+probe; never detach a loop device by guessing its number.
+
 ## 6. What we will build next, in order
 
 1. **Finish the bounded init check.** Confirm `INIT_TRIGGER_OK`. Keep the
@@ -173,6 +223,25 @@ after it passes; each later checkpoint will have its own focused test.
 9. **Measure and optimize.** Record idle and active CPU, memory, GPU and
    power before choosing a change. Keep the controller event-driven and
    avoid extra daemons or polling unless measurements require them.
+
+### What the next milestones will look like
+
+| Milestone | Evidence that it is done |
+| --- | --- |
+| Init trigger | Probe prints `INIT_TRIGGER_OK`; its log and cleanup are recorded. |
+| Guest cgroups | Android's actual process groups appear under Droidpc's delegated subtree, with real v2 controls. |
+| Device startup | ueventd creates only guest devices; host devices and sysctls stay isolated. |
+| Rust lifecycle | `start` and `stop` work; failed starts clean up mounts, loops and processes. |
+| Android shell | A guest shell runs after init, properties and core services start. |
+| Binder | Android processes can communicate over private Binder devices. |
+| First app | An x86_64 APK installs and opens on the selected guest image. |
+| Desktop display | The app is visible through a verified Linux graphics path. |
+| Desktop workflows | Input, audio, clipboard and files work and have individual checks. |
+| Optimization | Repeated measurements show a specific CPU or memory improvement. |
+
+We will not call the container complete merely because init stays alive or
+prints a success line. A usable milestone needs the feature, a repeatable
+check, and cleanup after both success and failure.
 
 Each step is finished only when its own test passes, cleanup is checked,
 and the result is documented. The larger design and later feature phases
