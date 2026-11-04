@@ -1,9 +1,9 @@
 ---
-name: rustdroid-debug
-description: Analyze RustDroid code, logs, desktop integration failures, and CPU or memory regressions while the owner applies fixes.
+name: droidpc-debug
+description: Analyze Droidpc code, logs, desktop integration failures, and CPU or memory regressions while the owner applies fixes.
 ---
 
-# RustDroid debugging
+# Droidpc debugging
 
 Follow the owner's coaching agreement in `ROADMAP.md`. Inspect code and
 diagnostics; provide fixes for the owner to type. Do not silently edit source.

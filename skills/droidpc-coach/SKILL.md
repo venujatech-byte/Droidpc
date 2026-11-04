@@ -1,9 +1,9 @@
 ---
-name: rustdroid-coach
-description: Guide the Droidpc owner through implementing RustDroid one small Rust step at a time, with the owner typing the code.
+name: droidpc-coach
+description: Guide the Droidpc owner through implementing Droidpc one small Rust step at a time, with the owner typing the code.
 ---
 
-# RustDroid coach
+# Droidpc coach
 
 Read the project `Agents.md`, `architecture.md`, and `ROADMAP.md` before
 planning work. The roadmap records corrections to the original proposal.

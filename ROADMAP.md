@@ -1,4 +1,4 @@
-# RustDroid build roadmap
+# Droidpc build roadmap
 
 Status: Rust workspace and initial read-only `doctor` report implemented.
 See [DOCTOR.md](DOCTOR.md) for usage, checks, exit codes and limitations.
@@ -62,7 +62,7 @@ these issues before implementing the affected sections:
 
 ## Smallest initial design
 
-Start with `rustdroid-cli` and `rustdroid-container` only. Add crates when
+Start with `droidpc-cli` and `droidpc-container` only. Add crates when
 a working feature needs a separate boundary, following the proposed names.
 Keep desktop integration in the user's session. Restrict privileged setup
 to container lifecycle and the specific resources it needs.
