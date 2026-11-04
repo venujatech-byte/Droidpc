@@ -61,6 +61,15 @@ per-process and per-thread scheduling requirements.
 This follows the [systemd delegation contract][delegation] and the kernel's
 [cgroup v2 rules][cgroups]. It is not a copy of Android guest's host runtime.
 
+The next runtime probe should start in its own delegated systemd unit. Move
+the host supervisor into a `manager` leaf, then enable `cpu`, `memory` and
+`pids` on the empty delegated parent. Create a separate empty `guest`
+branch. Before starting Android, verify that the guest's cgroup namespace
+is rooted at that branch and that Android init lives in a child leaf.
+This placement is needed before the guest can enable domain controllers
+for its own child groups. A writable cgroup v2 mount alone is insufficient.
+Do not write to the current terminal scope or enable controllers there.
+
 ## Guest cgroups: configuration work remains
 
 The inspected images contain base cgroup and task-profile definitions,
