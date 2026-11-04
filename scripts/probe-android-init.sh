@@ -19,6 +19,11 @@ cat > "$tmp/read-cgroup.sh" <<'SH'
 #!/system/bin/sh
 cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
 cat /sys/fs/cgroup/cgroup.subtree_control > /data/droidpc-enabled
+if [ -e /dev/.coldboot_done ]; then
+    echo visible > /data/droidpc-coldboot-marker
+else
+    echo missing > /data/droidpc-coldboot-marker
+fi
 SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 linker='    exec -- /system/bin/bootstrap/linkerconfig'
@@ -123,6 +128,8 @@ for name in controllers enabled; do
         echo "GUEST_CGROUP_${name}_MISSING"
     fi
 done
+printf 'COLD_BOOT_MARKER='
+cat "$tmp/data/droidpc-coldboot-marker" 2>/dev/null || echo missing
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"
 exit "$status"
