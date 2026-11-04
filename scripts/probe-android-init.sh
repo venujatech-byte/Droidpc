@@ -38,6 +38,8 @@ SH
 cat > "$tmp/read-profile.sh" <<'SH'
 #!/system/bin/sh
 cat /proc/1/cgroup > /data/droidpc-profile-cgroup
+getprop ro.bootmode > /data/droidpc-bootmode
+getprop ro.crypto.state > /data/droidpc-crypto-state
 SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 linker='    exec -- /system/bin/bootstrap/linkerconfig'
@@ -70,6 +72,10 @@ printf '%s\n' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
+    'on charger' \
+    '    write /data/droidpc-charger-trigger PASS' \
+    'on late-init' \
+    '    write /data/droidpc-late-init-trigger PASS' \
     'on property:sys.boot_completed=1' \
     '    write /data/droidpc-boot-completed PASS' \
     > "$tmp/probe.rc"
@@ -186,6 +192,20 @@ if [ -f "$tmp/data/droidpc-profile-cgroup" ]; then
     cat "$tmp/data/droidpc-profile-cgroup"
 else
     echo "GUEST_INIT_CGROUP_MISSING"
+fi
+printf 'GUEST_BOOTMODE='
+cat "$tmp/data/droidpc-bootmode"
+printf 'GUEST_CRYPTO_STATE='
+cat "$tmp/data/droidpc-crypto-state"
+if [ -s "$tmp/data/droidpc-charger-trigger" ]; then
+    echo "CHARGER_TRIGGERED"
+else
+    echo "CHARGER_NOT_TRIGGERED"
+fi
+if [ -s "$tmp/data/droidpc-late-init-trigger" ]; then
+    echo "LATE_INIT_TRIGGERED"
+else
+    echo "LATE_INIT_NOT_TRIGGERED"
 fi
 if [ -s "$tmp/data/droidpc-boot-completed" ]; then
     echo "ANDROID_BOOT_COMPLETED"

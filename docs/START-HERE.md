@@ -150,11 +150,11 @@ order.
 
 The bounded boot probe repeats the confirmed ueventd checks, mounts a
 private Binder filesystem, and asks Android init to apply the image's
-`HighPerformance` task profile to PID 1. It then lets the normal Android
-`late-init` startup sequence run and watches for `sys.boot_completed`.
-System and vendor images stay read-only. `/proc/sys`, `/sys`, `/dev`, and
-Binder stay private to the probe. This is the first full startup attempt;
-it does not yet pass through physical graphics, input, or audio devices.
+`HighPerformance` task profile to PID 1. It records `ro.bootmode` and marks
+whether Android processes its `charger` or `late-init` event. This tells us
+whether charger mode explains the previous halt. System and
+vendor images stay read-only. `/proc/sys`, `/sys`, `/dev`, and Binder stay
+private to the probe.
 
 Run this complete command from the repository root:
 
@@ -169,13 +169,15 @@ it. Look for these lines:
 INIT_PROBE_STATUS=124
 INIT_EARLY_INIT_OK
 INIT_TRIGGER_OK
+GUEST_BOOTMODE=
+LATE_INIT_TRIGGERED
 ANDROID_BOOT_COMPLETED
 ```
 
 `ANDROID_BOOT_COMPLETED` is the target. If it is missing, send the full
 output, especially the recent Android log. Also report the task-profile
-result and `GUEST_INIT_CGROUP`. A profile command that returns without an
-error does not prove that process placement changed.
+result, `GUEST_INIT_CGROUP`, `GUEST_BOOTMODE` and the trigger markers. A
+profile command that returns without an error does not prove placement.
 
 Common output meanings:
 
@@ -188,6 +190,8 @@ Common output meanings:
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
 | `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |
 | `TASK_PROFILE_ACTION_NO_FAILURE_REPORTED` | No command failure was logged; this does not prove cgroup movement. |
+| `CHARGER_TRIGGERED` | Init selected charger mode instead of normal startup. |
+| `LATE_INIT_NOT_TRIGGERED` | The normal Android startup sequence has not started. |
 | `ANDROID_BOOT_NOT_COMPLETED` | Android did not set its boot-complete property before timeout. |
 
 When reporting a failure, copy the command and all output from the status

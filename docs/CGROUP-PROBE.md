@@ -154,12 +154,12 @@ which Android actions can be represented with v2 controls before changing
 guest configuration.
 
 The bounded Android startup probe asks init to apply `HighPerformance` to
-PID 1 and records `/proc/1/cgroup` afterward. This tests the image's real
-API-28 `schedtune` action against the current private hierarchy. A
-successful init command alone is not proof of movement; inspect the
-recorded cgroup and Android log. It also gives the image's normal `late-init`
-sequence up to 45 seconds to boot with private Binder devices. It does not
-change image files or host cgroup settings.
+PID 1 and records `/proc/1/cgroup` afterward. The last run reported no
+command failure, but PID 1 remained at `0::/`; this is not evidence of
+successful placement. The probe now records `ro.bootmode` and whether init
+processes its `charger` or `late-init` event. Normal startup has not yet been
+confirmed. It uses private Binder devices and does not change image files or
+host cgroup settings.
 
 The [AOSP descriptor loader][aosp-descriptors] and
 [task-profile loader][aosp-profiles] read base, API-specific, then vendor
