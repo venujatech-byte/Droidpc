@@ -270,5 +270,8 @@ cgroup layout or a full Android boot.
 The probe now also captures the cgroup v2 controller lists without writing
 to the hierarchy. This will show which controllers are available to the
 guest before designing a vendor profile override.
+Android init's `copy` command rejected both cgroupfs control files as
+insecure, so that attempt did not reveal their contents. The next bounded
+probe reads them through a guest shell action into temporary `/data`.
 
 [aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp

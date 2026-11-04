@@ -14,12 +14,16 @@ tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
 touch "$tmp/kmsg"
+cat > "$tmp/read-cgroup.sh" <<'SH'
+#!/system/bin/sh
+cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
+cat /sys/fs/cgroup/cgroup.subtree_control > /data/droidpc-enabled
+SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
-    '    copy /sys/fs/cgroup/cgroup.controllers /data/droidpc-controllers' \
-    '    copy /sys/fs/cgroup/cgroup.subtree_control /data/droidpc-enabled' \
+    '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -61,6 +65,7 @@ unshare --user \
         --dir /dev/socket \
         --tmpfs /tmp \
         --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \
+        --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
