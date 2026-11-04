@@ -116,12 +116,12 @@ The PID 1 init probe attempted v1 `blkio`, `cpu`, `cpuset`, `memory` and
 `schedtune` mounts. All failed. It mounted cgroup v2 at `/sys/fs/cgroup`.
 After linkerconfig and APEX bootstrap, the guest shell read available
 controllers as `cpu io memory pids`; none were enabled for child groups.
-The init probe preloads a private `/dev/.coldboot_done` marker and records
-`INIT_TRIGGER_OK` if Android's `on init` action runs. A first attempt to
-create the marker from the init script reached early-init but did not release
-the wait. The preloaded marker bypasses device discovery, so this remains a
-bounded trigger test only. The real runtime must start ueventd and wait for
-device discovery before advancing past coldboot.
+The init probe now declares and starts the image's `ueventd` service from
+`early-init`. Earlier attempts to write or preload `/dev/.coldboot_done`
+were visible to the guest shell but did not release init's wait. The custom
+probe keeps `/sys` private and empty, so this tests ueventd startup and its
+coldboot completion path without exposing host devices. It does not test
+physical device discovery or a full Android boot.
 Do not enable them in the current terminal's cgroup. The runtime needs an
 owned delegated parent with no processes before enabling domain controllers
 for guest children. The earlier host systemd probe established that an

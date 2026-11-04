@@ -147,10 +147,11 @@ order.
 
 ## 5. The one new check to run now
 
-The newest init probe preloads a coldboot marker in private `/dev` **only
-inside the test** and checks whether Android's `on init` action runs. Normal Android boot must
-start `ueventd` and wait for real device discovery. This test cannot replace
-that work.
+The newest init probe declares and starts the guest's `ueventd` service.
+Its `/sys` and `/dev` are private, so no host device tree is passed through.
+The probe checks whether ueventd completes coldboot and Android reaches its
+`on init` action. It does not expose physical host devices or establish a
+full boot.
 
 Run this complete command from the repository root:
 
@@ -168,16 +169,17 @@ INIT_TRIGGER_OK
 ```
 
 If `INIT_TRIGGER_OK` is missing, send the full output so the first new error
-can be fixed. If it appears, the next checkpoint is to inspect the `on init`
-work and design real device discovery. Do not keep rerunning this same probe
-after it passes; each later checkpoint will have its own focused test.
+can be fixed. If it appears, the next checkpoint is to inspect which device
+nodes ueventd created and determine which guest hardware interfaces are
+needed. Do not keep rerunning this same probe after it passes; each later
+checkpoint will have its own focused test.
 
 Common output meanings:
 
 | Output | Meaning |
 | --- | --- |
 | `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
-| `INIT_TRIGGER_MISSING` | Init reached early-init but did not run the later `init` trigger. |
+| `INIT_TRIGGER_MISSING` | Init did not reach `on init`; inspect ueventd and coldboot logs. |
 | `INIT_PROBE_STATUS=124` | The 12 second timer stopped the probe as designed. |
 | `INIT_PROBE_STATUS=129` | Init or a child ended from signal 1; inspect the log for its earlier fatal error. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
