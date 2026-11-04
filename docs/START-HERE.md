@@ -163,15 +163,18 @@ blocks `lmkd` by temporarily running that service as Android root.
 The `console:/ $` prompt and “No controlling tty” warning come from the image's
 debug console service; they do not mean `sys.boot_completed=1`.
 
-The temporary SELinux domain let init get past the Binder manager failure,
-and the `lmkd` override got startup past its earlier critical exits. The
-latest fatal error is `bpfloader`: init cannot raise its `RLIMIT_MEMLOCK` to
-1 GiB inside the user namespace. The wrapper now sets a 1 GiB hard limit in
-the sudo-launched probe process so init inherits it; that limit ends with the
-probe process. Run `sudo ./scripts/probe-android-init-selinux.sh` for the next
-bounded diagnostic. It loads and removes the temporary SELinux module on
-exit. These settings diagnose boot in this environment and are not a
-production security configuration or a complete boot fix.
+The temporary SELinux domain lets Binder-dependent init commands run, and the
+1 GiB memlock limit lets `bpfloader` start. BPF map creation still fails with
+`Operation not permitted` because the namespace cannot load the Android BPF
+programs. Init continues starting services, but `zygote` exits after
+`setpriority` is denied, and `lmkd` eventually exits four times and triggers
+a reboot. The next bounded diagnostic captures Android logcat, removes the
+zygote priority request, and disables only `lmkd`'s fatal reboot so its real
+exit reason and later boot progress can be recorded. Run
+`sudo ./scripts/probe-android-init-selinux.sh` after this update. Its
+temporary SELinux module is removed on exit. These settings diagnose boot in
+this environment; they are not a production security configuration or a
+complete boot fix.
 
 Common output meanings:
 

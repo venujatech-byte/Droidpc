@@ -45,6 +45,17 @@ if ! grep -q '^    user root$' "$tmp/lmkd.rc"; then
     echo "Could not prepare temporary lmkd service configuration" >&2
     exit 1
 fi
+debugfs -R 'cat /system/etc/init/hw/init.zygote64_32.rc' "$system" 2>/dev/null \
+    | sed '/^    priority -20$/d' > "$tmp/zygote.rc"
+if ! grep -q '^service zygote ' "$tmp/zygote.rc"; then
+    echo "Could not prepare temporary zygote service configuration" >&2
+    exit 1
+fi
+cat > "$tmp/capture-logcat.sh" <<'SH'
+#!/system/bin/sh
+exec /system/bin/logcat -b all -v threadtime -r 1024 -n 1 \
+    -f /data/droidpc-logcat
+SH
 cat > "$tmp/read-cgroup.sh" <<'SH'
 #!/system/bin/sh
 cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
@@ -83,6 +94,7 @@ SH
 printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
+    '    setprop init.svc_debug.no_fatal.lmkd true' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
     '    mkdir /dev/binderfs 0755 root root' \
     '    mount binder binder /dev/binderfs' \
@@ -99,6 +111,8 @@ printf '%s\n' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
+    'on property:init.svc.logd=running' \
+    '    exec_background -- /system/bin/sh /tmp/droidpc-capture-logcat.sh' \
     'on charger' \
     '    write /data/droidpc-charger-trigger PASS' \
     'on late-init' \
@@ -133,6 +147,7 @@ set -- /usr/bin/unshare --user \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/init.rc" /system/etc/init/hw/init.rc \
         --ro-bind "$tmp/lmkd.rc" /system/etc/init/lmkd.rc \
+        --ro-bind "$tmp/zygote.rc" /system/etc/init/hw/init.zygote64_32.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
@@ -142,6 +157,7 @@ set -- /usr/bin/unshare --user \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
         --ro-bind "$tmp/read-binder.sh" /tmp/droidpc-read-binder.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
+        --ro-bind "$tmp/capture-logcat.sh" /tmp/droidpc-capture-logcat.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
@@ -242,6 +258,13 @@ echo "--- Android init log (start) ---"
 sed -n '1,80p' "$tmp/kmsg"
 echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
+if [ -f "$tmp/data/droidpc-logcat" ]; then
+    echo "--- Android logcat failures ---"
+    grep -E -i 'lmkd|bpfloader|zygote|fatal|boot_completed|systemserver' \
+        "$tmp/data/droidpc-logcat" | tail -n 120 || true
+else
+    echo "ANDROID_LOGCAT_MISSING"
+fi
 echo "--- Android init failures ---"
 grep -n -E 'Permission denied|reboot_on_failure|shutting down|could not be opened|Could not open|vold|binder|Fatal|failed to mount|exited with status' \
     "$tmp/kmsg" | tail -n 100 || true

@@ -300,13 +300,19 @@ wrapper is forcibly killed before cleanup, remove it with
 
 **Temporary SELinux-domain run (2026-11-05):** the process context was
 `droidpc_probe_t`, Binder-dependent `vdc` commands completed, and init
-advanced through `post-fs-data`. The prior Binder manager failure no longer
-stops startup. Running `lmkd` as guest root also avoided the repeated
-critical exits from the previous run. Init now reboots on `bpfloader`: setting
-its 1 GiB `RLIMIT_MEMLOCK` failed with `Operation not permitted`. The next
-wrapper run gives the probe process a 1 GiB hard limit before creating
-namespaces, which Android init inherits; it is limited to that process tree.
-It does not change the host's global limit.
+advanced through service startup. The 1 GiB `RLIMIT_MEMLOCK` change worked:
+`bpfloader` started, but BPF map creation failed with `Operation not
+permitted`; `/sys/fs/bpf` was also unavailable in the guest. Init continued
+starting services. `zygote` then exited after init could not set its priority,
+and `lmkd` eventually exited four times and caused a fatal reboot. Running
+`lmkd` as guest root did not prevent its later failures.
+
+The next diagnostic captures logcat to temporary `/data`, removes the
+zygote's unsupported `priority -20` setting, and sets
+`init.svc_debug.no_fatal.lmkd=true` to let init continue long enough to
+capture `lmkd`'s exit reason. The lmkd property and zygote change affect only
+the temporary probe configuration. The probe process tree retains its
+temporary 1 GiB memlock limit; the host's global limit is unchanged.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
