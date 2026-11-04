@@ -116,25 +116,19 @@ The PID 1 init probe attempted v1 `blkio`, `cpu`, `cpuset`, `memory` and
 `schedtune` mounts. All failed. It mounted cgroup v2 at `/sys/fs/cgroup`.
 After linkerconfig and APEX bootstrap, the guest shell read available
 controllers as `cpu io memory pids`; none were enabled for child groups.
-The init probe declares and starts the image's `ueventd` service from
-`early-init`. Ueventd starts, parses `/system/etc/ueventd.rc`, then exits
-with `Could not open uevent socket`. Init remains in
-`wait_for_coldboot_done`; `INIT_TRIGGER_MISSING` is expected. The probe keeps
-`/sys` private and does not expose host device events. The image requests a
-16 MiB uevent socket receive buffer; `SO_RCVBUFFORCE` fails with `EPERM` in
-this sandbox, while a 256 KiB request succeeds. The probe now overlays a
-temporary copy of `ueventd.rc` with that smaller value. With the override,
-ueventd reports `Coldboot took 0.001 seconds`, init logs
-`ro.cold_boot_done=true`, and the custom `on init` action runs. This proves
-the service and trigger path in an empty private `/sys`; it does not test
-physical devices or a full Android boot. See [the device inventory](DEVICE-NODES.md).
+The probe keeps `/sys` private and does not expose host device events. The
+image requests a 16 MiB uevent socket receive buffer; `SO_RCVBUFFORCE` fails
+with `EPERM` in this sandbox, while a 256 KiB request succeeds. The probe
+overlays a temporary copy of `ueventd.rc` with that smaller value.
 
-**Init trigger and `/dev` result (2026-11-04):** with a temporary ueventd
-receive-buffer override, the bounded probe printed `INIT_TRIGGER_OK`.
-Ueventd completed coldboot on the private empty `/sys`. The `/dev` listing
-contained standard nodes and Android's cgroup-related directories, but no
-Binder, DRM, input or sound nodes. This is expected because the probe passes
-no host device tree. Do not treat the listing as a host-device inventory.
+**Init trigger and `/dev` result (2026-11-04):** with that temporary
+override, the bounded probe printed `INIT_TRIGGER_OK`. Ueventd completed
+coldboot on the private empty `/sys`, and init processed the custom `on init`
+action. The `/dev` listing contained standard nodes and Android's
+cgroup-related directories, but no Binder, DRM, input or sound nodes. This
+is expected because the probe passes no host device tree. It proves the
+ueventd and init-trigger path, not physical devices or a full Android boot.
+See [the device inventory](DEVICE-NODES.md).
 
 Read-only inspection of `/system/etc/cgroups.json` shows required v1
 `blkio`, `cpu` and `cpuset` descriptors; v1 `memory` is marked optional.
@@ -142,11 +136,11 @@ Its v2 descriptor only declares the freezer at `/sys/fs/cgroup`. The
 API-28 `cgroups_28.json` adds required v1 `schedtune`. The corresponding
 API-28 task profiles move processes among `schedtune` groups and set
 `schedtune.boost` and `schedtune.prefer_idle`. The guest has no vendor
-cgroup or task-profile override. The next cgroup task is to design a minimal
-v2-compatible vendor override for the delegated `cpu`, `memory` and `pids`
-hierarchy, while preserving required process placement. Do not simply map
-`schedtune` onto a v2 controller; Linux cgroup v2 has no equivalent
-schedtune controller. Test the override in the bounded init probe before
+cgroup or task-profile override. A v2-compatible override must preserve
+process placement where possible; do not map `schedtune` onto a v2
+controller because Linux cgroup v2 has no equivalent controller. First
+verify how this image's process-group library applies v1 and v2 actions.
+Then test the smallest viable override in the bounded init probe before
 running Android's stock service sequence.
 Do not enable them in the current terminal's cgroup. The runtime needs an
 owned delegated parent with no processes before enabling domain controllers
@@ -156,7 +150,8 @@ test Android's placement or `io` delegation.
 This confirms the base and API-28 cgroup descriptors were selected in the
 tested init path. It does not confirm which task-profile actions run later.
 The host's cgroup v2 mount cannot provide `schedtune` behavior. Establish
-a real replacement for those actions before changing guest configuration.
+which Android actions can be represented with v2 controls before changing
+guest configuration.
 The [AOSP descriptor loader][aosp-descriptors] and
 [task-profile loader][aosp-profiles] read base, API-specific, then vendor
 files in that order. This is evidence for the expected behavior, not yet
