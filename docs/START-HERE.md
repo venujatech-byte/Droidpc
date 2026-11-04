@@ -165,16 +165,14 @@ debug console service; they do not mean `sys.boot_completed=1`.
 
 The temporary SELinux domain lets Binder-dependent init commands run, and the
 1 GiB memlock limit lets `bpfloader` start. BPF map creation still fails with
-`Operation not permitted` because the namespace cannot load the Android BPF
-programs. Init continues starting services, but `zygote` exits after
-`setpriority` is denied, and `lmkd` eventually exits four times and triggers
-a reboot. The next bounded diagnostic captures Android logcat, removes the
-zygote priority request, and disables only `lmkd`'s fatal reboot so its real
-exit reason and later boot progress can be recorded. Run
-`sudo ./scripts/probe-android-init-selinux.sh` after this update. Its
-temporary SELinux module is removed on exit. These settings diagnose boot in
-this environment; they are not a production security configuration or a
-complete boot fix.
+`Operation not permitted` in the user namespace. The latest bounded run
+reached the 45-second timeout with `lmkd` fatal reboot suppression enabled.
+ART started and accepted zygote socket connections, but
+`sys.boot_completed=1` was not reached. The logcat filter missed Android's
+`lowmemorykiller` tag; it is fixed for the next capture. The temporary
+SELinux module is removed on exit. These settings diagnose boot in this
+environment; they are not a production security configuration or a complete
+boot fix.
 
 Common output meanings:
 

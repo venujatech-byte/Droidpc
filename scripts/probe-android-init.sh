@@ -260,7 +260,7 @@ echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
 if [ -f "$tmp/data/droidpc-logcat" ]; then
     echo "--- Android logcat failures ---"
-    grep -E -i 'lmkd|bpfloader|zygote|fatal|boot_completed|systemserver' \
+    grep -E -i 'lmkd|lowmemorykiller|psi|memory pressure|bpfloader|zygote|system_server|systemserver|AndroidRuntime|ActivityManager|fatal|boot_completed' \
         "$tmp/data/droidpc-logcat" | tail -n 120 || true
 else
     echo "ANDROID_LOGCAT_MISSING"
