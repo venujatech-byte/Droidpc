@@ -27,6 +27,14 @@ unshare --user \
   --map-groups="1:$gid_start:65535" \
   --setgroups=allow \
   --setuid=0 --setgid=0 \
+  /usr/bin/bwrap \
+    --unshare-pid --unshare-ipc --unshare-uts \
+    --unshare-net --unshare-cgroup \
+    --die-with-parent --clearenv \
+    --cap-add ALL \
+    --ro-bind /usr /usr \
+    --ro-bind /lib64 /lib64 \
+    --proc /proc --dev /dev \
   /usr/bin/python3 -c '
 import os
 
@@ -42,5 +50,5 @@ assert covers_android_ids("/proc/self/uid_map")
 assert covers_android_ids("/proc/self/gid_map")
 os.setgroups([1000])
 assert os.getgroups() == [1000]
-print("PASS Android UID 1000, GID 1000, and setgroups")
+print("PASS Bubblewrap UID 1000, GID 1000, and setgroups")
 '

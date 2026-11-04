@@ -234,9 +234,11 @@ failure remain unresolved. Do not infer that the wider map alone fixes the
 `setgroups` restriction; verify both mappings and setgroups behavior in a
 disposable namespace before running init again.
 
-The focused check is `sudo ./scripts/probe-android-userns.sh`. It reads the
-current user's subordinate ranges, creates only a temporary user namespace,
-and checks UID/GID 1000 plus `setgroups`. It changes no host mappings or
-files. A pass is required before using this mapping in the init stage.
+The focused `sudo ./scripts/probe-android-userns.sh` check passed directly
+inside a temporary user namespace: UID 1000, GID 1000 and `setgroups` all
+worked. The script now also runs the check through Bubblewrap, with only
+read-only `/usr` and `/lib64` exposed. That nested check is not yet run.
+Neither probe changes host mappings or files. A nested pass is required
+before using this mapping in the init stage.
 
 Android init and the container are still not running.
