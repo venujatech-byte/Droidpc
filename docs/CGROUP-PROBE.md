@@ -68,6 +68,28 @@ plus API-specific files for levels 28, 29 and 30. The vendor advertises
 first API level 28. Which definitions this patched build selects must be
 verified; the presence of a file alone does not establish selection.
 
+Read-only `debugfs` inspection of the selected images found:
+
+- `/vendor/build.prop` sets `ro.product.first_api_level=28`.
+- `/system/etc/cgroups.json` declares v1 `blkio`, `cpu`, `cpuset` and
+  optional `memory`, plus a v2 freezer at `/sys/fs/cgroup`.
+- `/system/etc/task_profiles/cgroups_28.json` adds non-optional v1
+  `schedtune` at `/dev/stune`.
+- `/system/etc/task_profiles/task_profiles_28.json` replaces several CPU
+  performance profiles with `schedtune` actions.
+- The selected vendor image has no `/etc/cgroups.json` or
+  `/etc/task_profiles.json` override. Its `/android_guest.prop` contains only
+  a comment, so it supplies no boot properties.
+
+These are image contents, not proof of the loader's chosen API files. If
+the API-28 files are loaded, a pure cgroup v2 mount cannot provide their
+`schedtune` behavior. Establish the selected load order and a real
+replacement for those actions before changing guest configuration.
+The [AOSP descriptor loader][aosp-descriptors] and
+[task-profile loader][aosp-profiles] read base, API-specific, then vendor
+files in that order. This is evidence for the expected behavior, not yet
+proof that the selected LineageOS binaries use those exact revisions.
+
 The base configuration includes older `cpu`, `cpuset`, `blkio` and memory
 paths, and a v2 freezer. Some task profiles also reference older schedtune
 interfaces. Symlinking every old path to one v2 directory does not reproduce
@@ -118,3 +140,5 @@ Android startup code has been added until those details are established.
 [delegation]: https://systemd.io/CGROUP_DELEGATION/
 [cgroups]: https://docs.kernel.org/admin-guide/cgroup-v2.html
 [android-cgroups]: https://source.android.com/docs/core/perf/cgroups
+[aosp-descriptors]: https://android.googlesource.com/platform/system/core/%2B/1d02727c47b64cf377b1376d8c9ee4e840b2c526/libprocessgroup/util/util.cpp
+[aosp-profiles]: https://android.googlesource.com/platform/system/core.git/%2B/b65b8835e509fc14407c8263da69abd3fb03e54f/libprocessgroup/task_profiles.cpp
