@@ -183,10 +183,15 @@ if [ -f "$tmp/data/droidpc-profile-cgroup" ]; then
 else
     echo "GUEST_INIT_CGROUP_MISSING"
 fi
-printf 'GUEST_BOOTMODE='
-cat "$tmp/data/droidpc-bootmode"
-printf 'GUEST_CRYPTO_STATE='
-cat "$tmp/data/droidpc-crypto-state"
+for name in bootmode crypto-state; do
+    label=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
+    printf 'GUEST_%s=' "$label"
+    if [ -f "$tmp/data/droidpc-$name" ]; then
+        cat "$tmp/data/droidpc-$name"
+    else
+        echo "UNAVAILABLE"
+    fi
+done
 if [ -s "$tmp/data/droidpc-charger-trigger" ]; then
     echo "CHARGER_TRIGGERED"
 else
