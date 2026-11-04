@@ -44,6 +44,17 @@ cat > "$tmp/read-dev.sh" <<'SH'
 #!/system/bin/sh
 /system/bin/ls -l /dev > /data/droidpc-devices
 SH
+cat > "$tmp/read-binder.sh" <<'SH'
+#!/system/bin/sh
+{
+    /system/bin/ls -lZ /dev/binder /dev/binderfs/binder
+    if (exec 3<>/dev/binder); then
+        echo BINDER_OPEN_OK
+    else
+        echo BINDER_OPEN_FAILED
+    fi
+} > /data/droidpc-binder 2>&1
+SH
 cat > "$tmp/read-profile.sh" <<'SH'
 #!/system/bin/sh
 cat /proc/1/cgroup > /data/droidpc-profile-cgroup
@@ -57,6 +68,7 @@ printf '%s\n' \
     '    symlink /dev/binderfs/binder /dev/binder' \
     '    symlink /dev/binderfs/hwbinder /dev/hwbinder' \
     '    symlink /dev/binderfs/vndbinder /dev/vndbinder' \
+    '    exec -- /system/bin/sh /tmp/droidpc-read-binder.sh' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
@@ -125,6 +137,7 @@ unshare --user \
         --tmpfs /tmp \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
+        --ro-bind "$tmp/read-binder.sh" /tmp/droidpc-read-binder.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
@@ -171,6 +184,12 @@ if [ -f "$tmp/data/droidpc-devices" ]; then
 else
     echo "GUEST_DEVICE_LIST_MISSING"
 fi
+if [ -f "$tmp/data/droidpc-binder" ]; then
+    echo "--- Guest Binder access ---"
+    cat "$tmp/data/droidpc-binder"
+else
+    echo "GUEST_BINDER_CHECK_MISSING"
+fi
 if grep -q "Command 'task_profiles HighPerformance'.*failed" \
     "$tmp/kmsg"; then
     echo "TASK_PROFILE_ACTION_FAILED"
@@ -211,4 +230,7 @@ echo "--- Android init log (start) ---"
 sed -n '1,80p' "$tmp/kmsg"
 echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
+echo "--- Android init failures ---"
+grep -n -E 'Permission denied|reboot_on_failure|shutting down|could not be opened|Could not open|vold|binder|Fatal|failed to mount|exited with status' \
+    "$tmp/kmsg" | tail -n 100 || true
 exit "$status"
