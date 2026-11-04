@@ -30,6 +30,10 @@ cat > "$tmp/read-dev.sh" <<'SH'
 #!/system/bin/sh
 /system/bin/ls -l /dev > /data/droidpc-devices
 SH
+cat > "$tmp/read-profile.sh" <<'SH'
+#!/system/bin/sh
+cat /proc/1/cgroup > /data/droidpc-profile-cgroup
+SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 linker='    exec -- /system/bin/bootstrap/linkerconfig'
 linker="$linker --target /linkerconfig/bootstrap"
@@ -56,6 +60,8 @@ printf '%s\n' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
+    '    task_profiles HighPerformance' \
+    '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -100,6 +106,7 @@ unshare --user \
         --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
+        --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
@@ -146,6 +153,18 @@ if [ -f "$tmp/data/droidpc-devices" ]; then
     cat "$tmp/data/droidpc-devices"
 else
     echo "GUEST_DEVICE_LIST_MISSING"
+fi
+if grep -q "Command 'task_profiles HighPerformance'.*failed" \
+    "$tmp/kmsg"; then
+    echo "TASK_PROFILE_ACTION_FAILED"
+else
+    echo "TASK_PROFILE_ACTION_NO_FAILURE_REPORTED"
+fi
+if [ -f "$tmp/data/droidpc-profile-cgroup" ]; then
+    printf 'GUEST_INIT_CGROUP='
+    cat "$tmp/data/droidpc-profile-cgroup"
+else
+    echo "GUEST_INIT_CGROUP_MISSING"
 fi
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"

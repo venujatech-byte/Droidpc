@@ -148,12 +148,11 @@ order.
 
 ## 5. The one new check to run now
 
-The newest init probe declares and starts the guest's `ueventd` service.
-Its `/sys` and `/dev` are private, so no host device tree is passed through.
-The probe checks whether ueventd completes coldboot and Android reaches its
-`on init` action. It does not expose physical host devices or establish a
-full boot. It temporarily lowers the guest's requested uevent socket buffer
-to test a suspected permission failure; the source image stays read-only.
+The newest init probe repeats the confirmed ueventd and `on init` checks,
+then asks Android init to apply the image's `HighPerformance` task profile
+to PID 1. It records PID 1's cgroup and any task-profile command failure.
+Its `/sys` and `/dev` stay private, and the source images stay read-only.
+This does not expose physical devices or establish a full boot.
 
 Run this complete command from the repository root:
 
@@ -168,13 +167,14 @@ it. Look for these lines:
 INIT_PROBE_STATUS=124
 INIT_EARLY_INIT_OK
 INIT_TRIGGER_OK
+TASK_PROFILE_ACTION_NO_FAILURE_REPORTED
 ```
 
-If `INIT_TRIGGER_OK` is missing, send the full output so the first new error
-can be fixed. If it appears, the next checkpoint is to inspect which device
-nodes ueventd created and determine which guest hardware interfaces are
-needed. Do not keep rerunning this same probe after it passes; each later
-checkpoint will have its own focused test.
+If the task-profile output says `TASK_PROFILE_ACTION_FAILED`, or the init
+cgroup is missing, send the full output. A reported success only means init
+did not return an error; compare it with `GUEST_INIT_CGROUP` and the Android
+log to see whether placement actually changed. The cgroup result determines
+the next implementation step. Do not rerun after recording a complete result.
 
 Common output meanings:
 
@@ -185,6 +185,8 @@ Common output meanings:
 | `INIT_PROBE_STATUS=124` | The 12 second timer stopped the probe as designed. |
 | `INIT_PROBE_STATUS=129` | Init or a child ended from signal 1; inspect the log for its earlier fatal error. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
+| `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |
+| `TASK_PROFILE_ACTION_NO_FAILURE_REPORTED` | No command failure was logged; this does not prove cgroup movement. |
 
 When reporting a failure, copy the command and all output from the status
 line through the Android log. Do not paste only the final linker warning;
