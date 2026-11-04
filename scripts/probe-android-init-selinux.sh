@@ -26,4 +26,5 @@ semodule_package -o "$tmp/$module.pp" -m "$tmp/$module.mod"
 semodule -i "$tmp/$module.pp"
 installed=1
 
-DROIDPC_PROBE_SELINUX_DOMAIN=1 "$root/scripts/probe-android-init.sh"
+DROIDPC_PROBE_SELINUX_DOMAIN=1 DROIDPC_PROBE_BPF_MEMLOCK=1 \
+    "$root/scripts/probe-android-init.sh"

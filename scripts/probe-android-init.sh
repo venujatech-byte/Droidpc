@@ -7,6 +7,11 @@ if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_USER:-}" ]; then
     exit 1
 fi
 
+if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
+    echo "Could not set the probe's locked-memory limit to 1 GiB" >&2
+    exit 1
+fi
+
 if [ "${DROIDPC_PRIVATE_MOUNT_NS:-0}" != 1 ]; then
     export DROIDPC_PRIVATE_MOUNT_NS=1
     exec unshare --mount --propagation private "$0" "$@"

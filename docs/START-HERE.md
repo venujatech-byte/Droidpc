@@ -155,22 +155,23 @@ reboots, and `ANDROID_BOOT_NOT_COMPLETED` remains. The host audit records
 enforcing SELinux denials for Binder `set_context_mgr` by `servicemanager`,
 `hwservicemanager`, and `vndservicemanager`.
 
-The probe process uses the host's `unconfined_t` SELinux domain; Android's
-SELinux policy is not loaded into the shared host kernel. Init also logs
-permission failures while setting ownership and mode on
-`/proc/pressure/memory`. That likely prevents `lmkd` from setting its PSI
-monitor, but the captured kernel log does not yet include its detailed reason.
+The plain probe process uses the host's `unconfined_t` SELinux domain;
+Android's SELinux policy is not loaded into the shared host kernel. Init also
+logs permission failures while setting ownership and mode on
+`/proc/pressure/memory`. The diagnostic wrapper below tests whether that
+blocks `lmkd` by temporarily running that service as Android root.
 The `console:/ $` prompt and “No controlling tty” warning come from the image's
 debug console service; they do not mean `sys.boot_completed=1`.
 
-The next diagnostic run is prepared as
-`sudo ./scripts/probe-android-init-selinux.sh`. It loads a temporary
-permissive SELinux domain for this probe only, runs Android in that domain,
-and removes the policy module on exit. It also temporarily runs `lmkd` as
-Android root inside the existing user namespace to see whether its repeated
-exits are caused by access to `/proc/pressure/memory`. This is diagnostic
-configuration, not a production policy or a completed boot fix. Do not run
-the plain probe again until this diagnostic result is available.
+The temporary SELinux domain let init get past the Binder manager failure,
+and the `lmkd` override got startup past its earlier critical exits. The
+latest fatal error is `bpfloader`: init cannot raise its `RLIMIT_MEMLOCK` to
+1 GiB inside the user namespace. The wrapper now sets a 1 GiB hard limit in
+the sudo-launched probe process so init inherits it; that limit ends with the
+probe process. Run `sudo ./scripts/probe-android-init-selinux.sh` for the next
+bounded diagnostic. It loads and removes the temporary SELinux module on
+exit. These settings diagnose boot in this environment and are not a
+production security configuration or a complete boot fix.
 
 Common output meanings:
 
