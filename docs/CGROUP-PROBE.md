@@ -120,9 +120,14 @@ The init probe declares and starts the image's `ueventd` service from
 `early-init`. Ueventd starts, parses `/system/etc/ueventd.rc`, then exits
 with `Could not open uevent socket`. Init remains in
 `wait_for_coldboot_done`; `INIT_TRIGGER_MISSING` is expected. The probe keeps
-`/sys` private and does not expose host device events. See
-[the device inventory](DEVICE-NODES.md) for candidate guest nodes and the
-next investigation.
+`/sys` private and does not expose host device events. The image requests a
+16 MiB uevent socket receive buffer; `SO_RCVBUFFORCE` fails with `EPERM` in
+this sandbox, while a 256 KiB request succeeds. The probe now overlays a
+temporary copy of `ueventd.rc` with that smaller value. With the override,
+ueventd reports `Coldboot took 0.001 seconds`, init logs
+`ro.cold_boot_done=true`, and the custom `on init` action runs. This proves
+the service and trigger path in an empty private `/sys`; it does not test
+physical devices or a full Android boot. See [the device inventory](DEVICE-NODES.md).
 Do not enable them in the current terminal's cgroup. The runtime needs an
 owned delegated parent with no processes before enabling domain controllers
 for guest children. The earlier host systemd probe established that an

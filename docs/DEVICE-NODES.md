@@ -52,21 +52,27 @@ exists.
 5. **Input and sound.** Forward individual devices only when the guest
    feature is implemented and permission handling is understood.
 
-The first init probe cannot start ueventd: its private network namespace
-returns `Could not open uevent socket`. Do not solve this by sharing the
-host network namespace or forwarding every host uevent. Android ueventd
-normally listens to kernel uevent sockets, scans sysfs, creates device
-nodes, and applies image-specific permissions. The cgroup and startup probes
-have not tested a safe, filtered replacement for those operations.
+The first init probe could not start ueventd: its 16 MiB receive-buffer
+request required `SO_RCVBUFFORCE`, which failed with `EPERM`. A temporary
+config override requesting 256 KiB let ueventd start and complete coldboot.
+The probe's `/sys` is empty and private, so the result does not test physical
+device discovery. Do not solve device access by sharing the host network
+namespace or forwarding every host uevent. Android ueventd normally listens
+to kernel uevent sockets, scans sysfs, creates device nodes, and applies
+image-specific permissions.
 
-The socket itself, all-groups bind, and credential option work in the
-disposable namespace. The image requests a 16 MiB receive buffer. Forcing
-that buffer fails with `EPERM`; requesting 256 KiB succeeds and the kernel
-reports an effective 512 KiB buffer. The init probe now overlays a temporary
-copy of the guest ueventd config with that smaller buffer request. This is a
-diagnostic experiment; it does not edit the image or establish a final buffer
-setting for production. The next run will show whether this explains
-ueventd's startup failure.
+The socket, all-groups bind, credential option and smaller receive buffer
+were checked in a disposable namespace. The kernel reported an effective
+512 KiB buffer for the 256 KiB request. The override is only a probe
+configuration; production still needs measured event requirements.
+
+After ueventd coldboot, the guest `/dev` listing contained standard device
+nodes and Android-created cgroup directories. It contained no Binder, DRM,
+input or sound nodes. The probe's `/sys` is empty, so this is expected and
+does not describe which devices exist on the host. The next blocker is the
+Android cgroup v1/v2 mismatch; resolve it before starting the stock service
+sequence. Then add private BinderFS and only the hardware nodes needed by
+the first app.
 
 ## Current boundary and next investigation
 
