@@ -153,11 +153,13 @@ The host's cgroup v2 mount cannot provide `schedtune` behavior. Establish
 which Android actions can be represented with v2 controls before changing
 guest configuration.
 
-The next bounded probe asks init to apply `HighPerformance` to PID 1 and
-records `/proc/1/cgroup` afterward. This tests the image's real API-28
-`schedtune` action against the current private hierarchy. A successful init
-command alone is not proof of movement; inspect the recorded cgroup and
-Android log. The probe does not change image files or host cgroup settings.
+The bounded Android startup probe asks init to apply `HighPerformance` to
+PID 1 and records `/proc/1/cgroup` afterward. This tests the image's real
+API-28 `schedtune` action against the current private hierarchy. A
+successful init command alone is not proof of movement; inspect the
+recorded cgroup and Android log. It also gives the image's normal `late-init`
+sequence up to 45 seconds to boot with private Binder devices. It does not
+change image files or host cgroup settings.
 
 The [AOSP descriptor loader][aosp-descriptors] and
 [task-profile loader][aosp-profiles] read base, API-specific, then vendor

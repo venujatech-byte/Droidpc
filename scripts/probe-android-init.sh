@@ -7,12 +7,17 @@ if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_USER:-}" ]; then
     exit 1
 fi
 
+if [ "${DROIDPC_PRIVATE_MOUNT_NS:-0}" != 1 ]; then
+    export DROIDPC_PRIVATE_MOUNT_NS=1
+    exec unshare --mount --propagation private "$0" "$@"
+fi
+
 root=$(pwd -P)
 system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
-mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
+mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data" "$tmp/binderfs"
 touch "$tmp/kmsg"
 debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
     | sed 's/^uevent_socket_rcvbuf_size 16M$/uevent_socket_rcvbuf_size 256K/' \
@@ -48,6 +53,9 @@ printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
+    '    symlink /dev/binderfs/binder /dev/binder' \
+    '    symlink /dev/binderfs/hwbinder /dev/hwbinder' \
+    '    symlink /dev/binderfs/vndbinder /dev/vndbinder' \
     '    mkdir /linkerconfig/bootstrap 0755' \
     '    mkdir /linkerconfig/default 0755' \
     "$linker" \
@@ -62,17 +70,28 @@ printf '%s\n' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
+    'on property:sys.boot_completed=1' \
+    '    write /data/droidpc-boot-completed PASS' \
     > "$tmp/probe.rc"
 
 cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
+    umount "$tmp/binderfs" 2>/dev/null || true
     rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
+mount -t binder binder "$tmp/binderfs"
+for device in binder hwbinder vndbinder; do
+    if [ ! -c "$tmp/binderfs/$device" ]; then
+        echo "Binderfs did not create $device" >&2
+        exit 1
+    fi
+    chmod 0666 "$tmp/binderfs/$device"
+done
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 uid_start=$(awk -F: -v name="$SUDO_USER" \
@@ -85,7 +104,7 @@ if [ -z "$uid_start" ] || [ -z "$gid_start" ]; then
 fi
 
 status=0
-timeout --signal=TERM --kill-after=2s 12s \
+timeout --signal=TERM --kill-after=2s 45s \
 unshare --user \
     --map-users=0:0:1 \
     --map-users="1:$uid_start:65535" \
@@ -102,6 +121,8 @@ unshare --user \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
         --dir /dev/socket \
+        --dir /dev/binderfs \
+        --bind "$tmp/binderfs" /dev/binderfs \
         --tmpfs /tmp \
         --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
@@ -166,6 +187,13 @@ if [ -f "$tmp/data/droidpc-profile-cgroup" ]; then
 else
     echo "GUEST_INIT_CGROUP_MISSING"
 fi
-echo "--- Android init log ---"
-sed -n '1,160p' "$tmp/kmsg"
+if [ -s "$tmp/data/droidpc-boot-completed" ]; then
+    echo "ANDROID_BOOT_COMPLETED"
+else
+    echo "ANDROID_BOOT_NOT_COMPLETED"
+fi
+echo "--- Android init log (start) ---"
+sed -n '1,80p' "$tmp/kmsg"
+echo "--- Android init log (recent) ---"
+tail -n 120 "$tmp/kmsg"
 exit "$status"

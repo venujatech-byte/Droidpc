@@ -109,11 +109,11 @@ Android configuration also tried old cgroup v1 mounts; they failed on this
 host. `SetupCgroups` printed “succeeded” despite those failures, so that
 message is **not** proof that Android service groups work.
 
-The init probe deliberately stops after about 12 seconds. Its
-`INIT_PROBE_STATUS=124` means the wrapper timed out; it is expected for the
-bounded probe, but it is **not** a boot success result. `INIT_EARLY_INIT_OK`
-means only that the custom early action ran. A warning from the linker
-before linkerconfig is generated is expected in this probe.
+The Android startup probe is bounded to 45 seconds. Its
+`INIT_PROBE_STATUS=124` means the wrapper stopped the run; it is expected
+unless the boot-completed marker appears. `INIT_EARLY_INIT_OK` only confirms
+that the custom early action ran. Linker warnings before linkerconfig is
+generated are expected in this probe.
 
 All of these tests use temporary directories and namespaces. They do not
 install Android, change the base images, or create a persistent container.
@@ -142,17 +142,19 @@ compatible set of devices, system calls, properties and hardware interfaces.
 Detailed evidence is in [SHELL-PROBE.md](SHELL-PROBE.md),
 [STAGING-PROBE.md](STAGING-PROBE.md), and
 [CGROUP-PROBE.md](CGROUP-PROBE.md). Candidate Android device paths are
-listed in [DEVICE-NODES.md](DEVICE-NODES.md). Older “next step” paragraphs in those
-logs describe what was next *at that time*; follow this file for the current
+listed in [DEVICE-NODES.md](DEVICE-NODES.md). Older next-step notes in those
+logs describe what was next at that time; follow this file for the current
 order.
 
 ## 5. The one new check to run now
 
-The newest init probe repeats the confirmed ueventd and `on init` checks,
-then asks Android init to apply the image's `HighPerformance` task profile
-to PID 1. It records PID 1's cgroup and any task-profile command failure.
-Its `/sys` and `/dev` stay private, and the source images stay read-only.
-This does not expose physical devices or establish a full boot.
+The bounded boot probe repeats the confirmed ueventd checks, mounts a
+private Binder filesystem, and asks Android init to apply the image's
+`HighPerformance` task profile to PID 1. It then lets the normal Android
+`late-init` startup sequence run and watches for `sys.boot_completed`.
+System and vendor images stay read-only. `/proc/sys`, `/sys`, `/dev`, and
+Binder stay private to the probe. This is the first full startup attempt;
+it does not yet pass through physical graphics, input, or audio devices.
 
 Run this complete command from the repository root:
 
@@ -167,14 +169,13 @@ it. Look for these lines:
 INIT_PROBE_STATUS=124
 INIT_EARLY_INIT_OK
 INIT_TRIGGER_OK
-TASK_PROFILE_ACTION_NO_FAILURE_REPORTED
+ANDROID_BOOT_COMPLETED
 ```
 
-If the task-profile output says `TASK_PROFILE_ACTION_FAILED`, or the init
-cgroup is missing, send the full output. A reported success only means init
-did not return an error; compare it with `GUEST_INIT_CGROUP` and the Android
-log to see whether placement actually changed. The cgroup result determines
-the next implementation step. Do not rerun after recording a complete result.
+`ANDROID_BOOT_COMPLETED` is the target. If it is missing, send the full
+output, especially the recent Android log. Also report the task-profile
+result and `GUEST_INIT_CGROUP`. A profile command that returns without an
+error does not prove that process placement changed.
 
 Common output meanings:
 
@@ -182,11 +183,12 @@ Common output meanings:
 | --- | --- |
 | `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
 | `INIT_TRIGGER_MISSING` | Init did not reach `on init`; inspect ueventd and coldboot logs. |
-| `INIT_PROBE_STATUS=124` | The 12 second timer stopped the probe as designed. |
+| `INIT_PROBE_STATUS=124` | The 45 second timer stopped the probe as designed. |
 | `INIT_PROBE_STATUS=129` | Init or a child ended from signal 1; inspect the log for its earlier fatal error. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
 | `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |
 | `TASK_PROFILE_ACTION_NO_FAILURE_REPORTED` | No command failure was logged; this does not prove cgroup movement. |
+| `ANDROID_BOOT_NOT_COMPLETED` | Android did not set its boot-complete property before timeout. |
 
 When reporting a failure, copy the command and all output from the status
 line through the Android log. Do not paste only the final linker warning;
@@ -207,23 +209,23 @@ probe; never detach a loop device by guessing its number.
 
 ## 6. What we will build next, in order
 
-1. **Finish the bounded init check.** Confirm `INIT_TRIGGER_OK`. Keep the
-   system and vendor images read-only and all test mounts private.
+1. **Reach Android boot completion.** Run the bounded boot probe and find
+   the first fatal service or missing resource if the marker is absent.
+   Keep images read-only and all mounts private.
 2. **Make a safe guest cgroup layout.** Put Android init in a child group
    of Droidpc's own delegated hierarchy. Determine which Android task
    profiles need cgroup v2 replacements. Do not fake old control files.
-3. **Provide real startup prerequisites.** Start `ueventd`, create only the
-   required private devices, and verify Android's next startup actions.
-   Keep host `/proc/sys`, `/sys`, cgroups and SELinux protected.
+3. **Complete device and process setup.** Provide the required Binder and
+   graphics devices. Verify Android process placement and keep host sysfs,
+   proc sysctls, cgroups and SELinux protected.
 4. **Implement a small Rust lifecycle.** Verify pinned images, mount them
    read-only, own all temporary resources, launch a guest shell, stop it,
    and recover after a failed start. Add one piece at a time.
-5. **Allocate private Binder devices.** Prove Binder works inside the
-   guest without taking devices from another Android instance.
-6. **Reach a basic Android boot.** Add persistent `/data`, required
-   properties and services; check logs and a working Android shell.
-7. **Add one display and one app.** Validate the selected guest graphics
-   path on this Intel GPU, then install and launch one x86_64 APK.
+5. **Install one app.** Verify the package manager installs one x86_64 APK.
+6. **Add a persistent `/data` directory.** Verify app state survives
+   container restarts without changing the source images.
+7. **Verify desktop display.** Validate the selected guest graphics path
+   on this Intel GPU, then launch the installed APK.
 8. **Add desktop features one at a time.** Windows, keyboard and mouse,
    audio, clipboard, networking and shared files each need a real test.
 9. **Measure and optimize.** Record idle and active CPU, memory, GPU and
@@ -274,4 +276,5 @@ whether temporary resources remained. Never “fix” an error by disabling
 SELinux or changing host-wide cgroups.
 
 **Current handoff:** run the command in section 5 once and report whether
-`INIT_TRIGGER_OK` appears. Then continue with step 2 above.
+`ANDROID_BOOT_COMPLETED` appears. If it does not, send the full output so
+we can fix the earliest startup failure before adding more services.
