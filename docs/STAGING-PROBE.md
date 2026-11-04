@@ -282,10 +282,21 @@ passes, init reaches `late-init`, both Binder device paths open, and
 `INIT_TRIGGER_OK` is present. This is still not a boot: service managers are
 denied `set_context_mgr` by the enforcing Fedora policy, and critical `lmkd`
 exits four times before boot completion. The guest log also shows init cannot
-change ownership or mode on `/proc/pressure/memory`; this likely prevents
-`lmkd` from configuring its PSI monitor. The run ends with `INIT_PROBE_STATUS=129`
-and `ANDROID_BOOT_NOT_COMPLETED`. Do not repeat the same probe until the
-SELinux and PSI/cgroup constraints have a reviewed solution.
+change ownership or mode on `/proc/pressure/memory`; this may prevent `lmkd`
+from configuring its PSI monitor. The run ends with `INIT_PROBE_STATUS=129`
+and `ANDROID_BOOT_NOT_COMPLETED`.
+
+The next diagnostic is `sudo ./scripts/probe-android-init-selinux.sh`. It
+loads `droidpc_probe_t` as a permissive domain while the probe runs, then
+removes that temporary policy module on exit. The Android init process tree
+uses the domain so Binder manager calls can proceed without disabling host
+SELinux globally. The wrapper also overlays a temporary `lmkd.rc` that runs
+`lmkd` as guest root within the existing user namespace. If `lmkd` stays
+alive, this isolates its failure to PSI access for a follow-up fix. Neither
+override modifies the Android image. This diagnostic run is not a production
+security configuration; do not leave the temporary module installed. If the
+wrapper is forcibly killed before cleanup, remove it with
+`sudo semodule -r droidpc_probe`.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses

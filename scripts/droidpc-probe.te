@@ -1,0 +1,19 @@
+module droidpc_probe 1.0;
+
+require {
+    type unconfined_t;
+    type bin_t;
+    role unconfined_r;
+    attribute domain;
+    class process { setexec transition };
+    class file { entrypoint execute execute_no_trans getattr map open read };
+}
+
+type droidpc_probe_t;
+typeattribute droidpc_probe_t domain;
+role unconfined_r types droidpc_probe_t;
+
+allow unconfined_t self:process setexec;
+allow unconfined_t droidpc_probe_t:process transition;
+allow droidpc_probe_t bin_t:file { entrypoint execute execute_no_trans getattr map open read };
+permissive droidpc_probe_t;

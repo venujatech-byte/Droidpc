@@ -34,6 +34,12 @@ if ! grep -q '^uevent_socket_rcvbuf_size 256K$' "$tmp/ueventd.rc"; then
     echo "Could not prepare temporary ueventd configuration" >&2
     exit 1
 fi
+debugfs -R 'cat /system/etc/init/lmkd.rc' "$system" 2>/dev/null \
+    | sed 's/^    user lmkd$/    user root/' > "$tmp/lmkd.rc"
+if ! grep -q '^    user root$' "$tmp/lmkd.rc"; then
+    echo "Could not prepare temporary lmkd service configuration" >&2
+    exit 1
+fi
 cat > "$tmp/read-cgroup.sh" <<'SH'
 #!/system/bin/sh
 cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
@@ -110,8 +116,7 @@ mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
-timeout --signal=TERM --kill-after=2s 45s \
-unshare --user \
+set -- /usr/bin/unshare --user \
     --map-users=0:0:65536 \
     --map-groups=0:0:65536 \
     --setgroups=allow --setuid=0 --setgid=0 \
@@ -122,6 +127,7 @@ unshare --user \
         --clearenv --cap-add ALL \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/init.rc" /system/etc/init/hw/init.rc \
+        --ro-bind "$tmp/lmkd.rc" /system/etc/init/lmkd.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
@@ -139,7 +145,11 @@ unshare --user \
         --tmpfs /apex \
         --tmpfs /linkerconfig \
         --chdir / \
-        /system/bin/init second_stage || status=$?
+        /system/bin/init second_stage
+if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
+    set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
+fi
+timeout --signal=TERM --kill-after=2s 45s "$@" || status=$?
 
 echo "INIT_PROBE_STATUS=$status"
 if [ -s "$tmp/data/droidpc-early-init" ]; then

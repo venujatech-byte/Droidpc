@@ -163,10 +163,14 @@ monitor, but the captured kernel log does not yet include its detailed reason.
 The `console:/ $` prompt and “No controlling tty” warning come from the image's
 debug console service; they do not mean `sys.boot_completed=1`.
 
-Do not repeat the same 45-second probe yet. Completing this boot requires
-resolving host SELinux Binder permissions and the guest PSI/cgroup setup.
-Changing host SELinux policy or running Android in a separate kernel changes
-the security model; review that choice before the next privileged run.
+The next diagnostic run is prepared as
+`sudo ./scripts/probe-android-init-selinux.sh`. It loads a temporary
+permissive SELinux domain for this probe only, runs Android in that domain,
+and removes the policy module on exit. It also temporarily runs `lmkd` as
+Android root inside the existing user namespace to see whether its repeated
+exits are caused by access to `/proc/pressure/memory`. This is diagnostic
+configuration, not a production policy or a completed boot fix. Do not run
+the plain probe again until this diagnostic result is available.
 
 Common output meanings:
 
