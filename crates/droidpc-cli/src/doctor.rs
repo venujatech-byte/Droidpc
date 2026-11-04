@@ -58,6 +58,7 @@ pub fn run(images: &Path) -> ExitCode {
     }
     filesystems(&mut report);
     namespaces(&mut report);
+    subordinate_ids(&mut report);
     cgroups(&mut report);
     wayland(&mut report);
     gpu(&mut report);
@@ -139,6 +140,52 @@ fn namespaces(report: &mut Report) {
             ),
         }
     }
+}
+
+fn has_subid_range(contents: &str, user: &str) -> bool {
+    contents.lines().any(|line| {
+        let mut fields = line.split(':');
+        let (Some(name), Some(start), Some(count), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
+        else {
+            return false;
+        };
+        let (Ok(start), Ok(count)) =
+            (start.parse::<u32>(), count.parse::<u32>())
+        else {
+            return false;
+        };
+        name == user
+            && count >= 65_535
+            && u64::from(start) + u64::from(count) <= u64::from(u32::MAX) + 1
+    })
+}
+
+fn subordinate_ids(report: &mut Report) {
+    let Some(user) = env::var("USER").ok().filter(|name| !name.is_empty())
+    else {
+        report.item("WARN", "Subordinate IDs", "USER is unset");
+        return;
+    };
+    for (label, path) in [
+        ("Subordinate UIDs", "/etc/subuid"),
+        ("Subordinate GIDs", "/etc/subgid"),
+    ] {
+        let Some(contents) = report.read(label, Path::new(path)) else {
+            continue;
+        };
+        let (status, detail) = if has_subid_range(&contents, &user) {
+            ("PASS", format!("USER={user} has at least 65535 IDs"))
+        } else {
+            ("WARN", format!("no 65535-ID range for USER={user}"))
+        };
+        report.item(status, label, detail);
+    }
+    report.item(
+        "WARN",
+        "User namespace mapping",
+        "range presence only; setgroups and mapping untested",
+    );
 }
 
 fn has_filesystem(list: &str, name: &str) -> bool {
@@ -463,6 +510,17 @@ mod tests {
         }
         assert!(!has_controller("cpuset memory_extra", "cpu"));
         assert!(!has_controller("", "memory"));
+    }
+
+    #[test]
+    fn subordinate_ranges_require_an_exact_user_and_sufficient_count() {
+        let entries = "ann:524288:65536\nanna:100000:65535\n";
+        assert!(has_subid_range(entries, "ann"));
+        assert!(has_subid_range(entries, "anna"));
+        assert!(!has_subid_range(entries, "an"));
+        assert!(!has_subid_range("ann:1:65534\n", "ann"));
+        assert!(!has_subid_range("ann:4294967295:65535\n", "ann"));
+        assert!(!has_subid_range("ann:1:65535:extra\n", "ann"));
     }
 
     #[test]
