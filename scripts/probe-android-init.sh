@@ -24,6 +24,7 @@ linker='    exec -- /system/bin/bootstrap/linkerconfig'
 linker="$linker --target /linkerconfig/bootstrap"
 config='    copy /linkerconfig/bootstrap/ld.config.txt'
 config="$config /linkerconfig/default/ld.config.txt"
+# shortcut: skip ueventd here; real boot must finish coldboot first.
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
@@ -35,6 +36,9 @@ printf '%s\n' 'on early-init' \
     '    exec -- /system/bin/apexd --bootstrap' \
     '    update_linker_config' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
+    '    write /dev/.coldboot_done PASS' \
+    'on init' \
+    '    write /data/droidpc-init-trigger PASS' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -96,6 +100,11 @@ if [ -s "$tmp/data/droidpc-early-init" ]; then
     echo "INIT_EARLY_INIT_OK"
 else
     echo "INIT_EARLY_INIT_MISSING"
+fi
+if [ -s "$tmp/data/droidpc-init-trigger" ]; then
+    echo "INIT_TRIGGER_OK"
+else
+    echo "INIT_TRIGGER_MISSING"
 fi
 if [ -s "$tmp/data/droidpc-mounts" ]; then
     echo "--- Guest cgroup mounts ---"
