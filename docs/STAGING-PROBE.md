@@ -235,10 +235,9 @@ failure remain unresolved. Do not infer that the wider map alone fixes the
 disposable namespace before running init again.
 
 The focused `sudo ./scripts/probe-android-userns.sh` check passed directly
-inside a temporary user namespace: UID 1000, GID 1000 and `setgroups` all
-worked. The script now also runs the check through Bubblewrap, with only
-read-only `/usr` and `/lib64` exposed. That nested check is not yet run.
-Neither probe changes host mappings or files. A nested pass is required
-before using this mapping in the init stage.
+inside Bubblewrap and a temporary user namespace: UID 1000, GID 1000 and
+`setgroups` all worked. The probe exposed only read-only `/usr` and `/lib64`.
+It changed no host mappings or files. This validates identity setup only;
+Android init has not yet been retried with this mapping.
 
 Android init and the container are still not running.
