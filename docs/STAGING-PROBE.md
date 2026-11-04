@@ -277,6 +277,16 @@ probe's global 64-bit `LD_LIBRARY_PATH` caused the 32-bit self-test to load a
 configuration chooses libraries by ABI. A successful self-test will not by
 itself remove the separate host SELinux restriction.
 
+**Latest stock init run (2026-11-05):** the 32-bit BoringSSL self-test now
+passes, init reaches `late-init`, both Binder device paths open, and
+`INIT_TRIGGER_OK` is present. This is still not a boot: service managers are
+denied `set_context_mgr` by the enforcing Fedora policy, and critical `lmkd`
+exits four times before boot completion. The guest log also shows init cannot
+change ownership or mode on `/proc/pressure/memory`; this likely prevents
+`lmkd` from configuring its PSI monitor. The run ends with `INIT_PROBE_STATUS=129`
+and `ANDROID_BOOT_NOT_COMPLETED`. Do not repeat the same probe until the
+SELinux and PSI/cgroup constraints have a reviewed solution.
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.

@@ -101,7 +101,7 @@ See [DOCTOR.md](../DOCTOR.md) for the report's exact meanings.
 | User IDs | Guest UID/GID 1000 and `setgroups` worked in a disposable namespace. | All guest accounts map correctly. |
 | Host cgroups | A temporary delegated service accepted CPU, memory and PID controls. | Android uses those controls. |
 | Guest placement | A child cgroup namespace could use an `init` leaf and enable controllers. | Android init is placed there. |
-| Android init | Second-stage init ran as PID 1, reached `early-init`, and ran a guest shell. | Home screen or app launch. |
+| Android init | Stock second-stage init ran as PID 1, reached `late-init`, passed the 32-bit BoringSSL test, and opened private Binder devices. | Completed Android boot or app launch. |
 
 The observed guest cgroup2 mount was writable and reported `cpu io memory
 pids` as available. Its `cgroup.subtree_control` was empty. The selected
@@ -109,11 +109,11 @@ Android configuration also tried old cgroup v1 mounts; they failed on this
 host. `SetupCgroups` printed “succeeded” despite those failures, so that
 message is **not** proof that Android service groups work.
 
-The Android startup probe is bounded to 45 seconds. Its
-`INIT_PROBE_STATUS=124` means the wrapper stopped the run; it is expected
-unless the boot-completed marker appears. `INIT_EARLY_INIT_OK` only confirms
-that the custom early action ran. Linker warnings before linkerconfig is
-generated are expected in this probe.
+The Android startup probe is bounded to 45 seconds. `INIT_PROBE_STATUS=124`
+means the wrapper stopped the run; `129` means init exited after a fatal
+shutdown. Neither status means Android completed boot. `INIT_EARLY_INIT_OK`
+only confirms that the custom early action ran. Linker warnings before
+linkerconfig is generated are expected in this probe.
 
 All of these tests use temporary directories and namespaces. They do not
 install Android, change the base images, or create a persistent container.
@@ -146,40 +146,27 @@ listed in [DEVICE-NODES.md](DEVICE-NODES.md). Older next-step notes in those
 logs describe what was next at that time; follow this file for the current
 order.
 
-## 5. The one new check to run now
+## 5. Current Android boot blocker
 
-The bounded boot probe repeats the confirmed ueventd checks, mounts a
-private Binder filesystem, and asks Android init to apply the image's
-`HighPerformance` task profile to PID 1. It records `ro.bootmode` and marks
-whether Android processes its `charger` or `late-init` event. The last run
-reached `late-init`, but `androidboot.init_rc` had replaced the image's
-primary startup file with our small probe file. This version appends the
-diagnostics to a temporary copy of the stock init file, so Android keeps its
-normal startup actions. The source images stay read-only; `/proc/sys`,
-`/sys`, `/dev`, and Binder stay private to the probe.
+The latest run reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`. The
+32-bit BoringSSL self-test passed and both private Binder device paths open.
+This still is not a completed boot: critical `lmkd` exits four times, init
+reboots, and `ANDROID_BOOT_NOT_COMPLETED` remains. The host audit records
+enforcing SELinux denials for Binder `set_context_mgr` by `servicemanager`,
+`hwservicemanager`, and `vndservicemanager`.
 
-Run this complete command from the repository root:
+The probe process uses the host's `unconfined_t` SELinux domain; Android's
+SELinux policy is not loaded into the shared host kernel. Init also logs
+permission failures while setting ownership and mode on
+`/proc/pressure/memory`. That likely prevents `lmkd` from setting its PSI
+monitor, but the captured kernel log does not yet include its detailed reason.
+The `console:/ $` prompt and “No controlling tty” warning come from the image's
+debug console service; they do not mean `sys.boot_completed=1`.
 
-```sh
-sudo ./scripts/probe-android-init.sh
-```
-
-Enter your sudo password at your own terminal. The coding agent cannot enter
-it. Look for these lines:
-
-```text
-INIT_PROBE_STATUS=124
-INIT_EARLY_INIT_OK
-INIT_TRIGGER_OK
-GUEST_BOOTMODE=
-LATE_INIT_TRIGGERED
-ANDROID_BOOT_COMPLETED
-```
-
-`ANDROID_BOOT_COMPLETED` is the target. If it is missing, send the full
-output, especially the recent Android log. Also report the task-profile
-result, `GUEST_INIT_CGROUP`, `GUEST_BOOTMODE` and the trigger markers. A
-profile command that returns without an error does not prove placement.
+Do not repeat the same 45-second probe yet. Completing this boot requires
+resolving host SELinux Binder permissions and the guest PSI/cgroup setup.
+Changing host SELinux policy or running Android in a separate kernel changes
+the security model; review that choice before the next privileged run.
 
 Common output meanings:
 
@@ -188,7 +175,7 @@ Common output meanings:
 | `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
 | `INIT_TRIGGER_MISSING` | Init did not reach `on init`; inspect ueventd and coldboot logs. |
 | `INIT_PROBE_STATUS=124` | The 45 second timer stopped the probe as designed. |
-| `INIT_PROBE_STATUS=129` | Init or a child ended from signal 1; inspect the log for its earlier fatal error. |
+| `INIT_PROBE_STATUS=129` | Init exited during fatal shutdown; inspect the critical service failures in the log. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
 | `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |
 | `TASK_PROFILE_ACTION_NO_FAILURE_REPORTED` | No command failure was logged; this does not prove cgroup movement. |
