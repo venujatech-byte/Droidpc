@@ -53,7 +53,7 @@ unshare --user \
         --clearenv --cap-add ALL \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/vendor" /vendor \
-        --proc /proc --tmpfs /dev \
+        --proc /proc --dev /dev \
         --dir /dev/socket \
         --tmpfs /tmp \
         --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \

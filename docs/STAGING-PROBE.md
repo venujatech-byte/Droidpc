@@ -247,5 +247,10 @@ UID/GID mapping reached the custom `early-init` action and wrote its marker.
 The wrapper timed out with status 124. The log showed `SetupCgroups` rejected
 the run because init was not PID 1; it was a child of the probe shell.
 The probe now starts init directly as PID 1 in its private PID namespace and
-stores the marker in its own temporary `/data`. This revised run remains to
-be checked. It still does not start the stock Android services.
+stores the marker in its own temporary `/data`. It does not start the stock
+Android services.
+
+The first PID 1 run exited with status 129 before `early-init`: init aborted
+because the empty private `/dev` lacked `/dev/null`. The probe now uses
+Bubblewrap's private device setup to provide standard device nodes. This
+revision has not yet been run.
