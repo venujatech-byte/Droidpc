@@ -276,6 +276,9 @@ probe reads them through a guest shell action into temporary `/data`.
 The shell action started, but `execv` returned `ENOENT`. The selected image
 links `/system/bin/linker64` to the runtime APEX. The custom init script
 had skipped the image's linkerconfig and APEX bootstrap actions. The probe
-now includes those actions before launching the shell; this is unverified.
+now includes those actions before launching the shell. The retry succeeded:
+both bootstrap tools exited with status 0, linkerconfig generated its
+configuration, and the guest shell exited with status 0. It reported
+`cpu io memory pids` available and no child controllers enabled.
 
 [aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp

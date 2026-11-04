@@ -84,6 +84,13 @@ Read-only `debugfs` inspection of the selected images found:
 
 The PID 1 init probe attempted v1 `blkio`, `cpu`, `cpuset`, `memory` and
 `schedtune` mounts. All failed. It mounted cgroup v2 at `/sys/fs/cgroup`.
+After linkerconfig and APEX bootstrap, the guest shell read available
+controllers as `cpu io memory pids`; none were enabled for child groups.
+Do not enable them in the current terminal's cgroup. The runtime needs an
+owned delegated parent with no processes before enabling domain controllers
+for guest children. The earlier host systemd probe established that an
+empty delegated parent can enable `cpu`, `memory` and `pids`; it did not
+test Android's placement or `io` delegation.
 This confirms the base and API-28 cgroup descriptors were selected in the
 tested init path. It does not confirm which task-profile actions run later.
 The host's cgroup v2 mount cannot provide `schedtune` behavior. Establish
