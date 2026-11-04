@@ -262,5 +262,7 @@ still reported success. The [AOSP setup loop][aosp-cgroup-setup] logs a
 warning and continues after each controller failure, so action success
 does not establish usable guest cgroups. The probe now copies `/proc/mounts`
 into temporary `/data` to show which cgroup mounts actually exist.
+The first copy used `/proc/mounts`, which is a symlink; Android init
+rejected it. The probe now reads `/proc/1/mounts` directly.
 
 [aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp

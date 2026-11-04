@@ -17,7 +17,7 @@ touch "$tmp/kmsg"
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
-    '    copy /proc/mounts /data/droidpc-mounts' \
+    '    copy /proc/1/mounts /data/droidpc-mounts' \
     > "$tmp/probe.rc"
 
 cleanup() {
