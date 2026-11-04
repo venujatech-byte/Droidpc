@@ -241,3 +241,11 @@ It changed no host mappings or files. This validates identity setup only;
 Android init has not yet been retried with this mapping.
 
 Android init and the container are still not running.
+
+**Mapped init probe (2026-11-04):** a bounded Bubblewrap run with the verified
+UID/GID mapping reached the custom `early-init` action and wrote its marker.
+The wrapper timed out with status 124. The log showed `SetupCgroups` rejected
+the run because init was not PID 1; it was a child of the probe shell.
+The probe now starts init directly as PID 1 in its private PID namespace and
+stores the marker in its own temporary `/data`. This revised run remains to
+be checked. It still does not start the stock Android services.

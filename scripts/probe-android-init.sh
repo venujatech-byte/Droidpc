@@ -39,7 +39,7 @@ if [ -z "$uid_start" ] || [ -z "$gid_start" ]; then
 fi
 
 status=0
-timeout --signal=TERM --kill-after=2s 20s \
+timeout --signal=TERM --kill-after=2s 12s \
 unshare --user \
     --map-users=0:0:1 \
     --map-users="1:$uid_start:65535" \
@@ -49,7 +49,8 @@ unshare --user \
     /usr/bin/bwrap \
         --unshare-pid --unshare-ipc --unshare-uts \
         --unshare-net --unshare-cgroup \
-        --die-with-parent --clearenv --cap-add ALL \
+        --die-with-parent --as-pid-1 \
+        --clearenv --cap-add ALL \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --tmpfs /dev \
@@ -60,7 +61,7 @@ unshare --user \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
         --bind "$tmp/kmsg" /dev/kmsg \
-        --tmpfs /data --tmpfs /mnt \
+        --bind "$tmp/data" /data --tmpfs /mnt \
         --tmpfs /apex --dir /apex/com.android.runtime \
         --ro-bind "$tmp/system/system/apex/com.android.runtime" \
         /apex/com.android.runtime \
@@ -68,27 +69,14 @@ unshare --user \
         --setenv LD_LIBRARY_PATH \
         /system/apex/com.android.runtime/lib64/bionic:/system/lib64 \
         --chdir / \
-        /system/bin/sh -c '
-            /system/bin/init second_stage &
-            init_pid=$!
-            count=0
-            while [ ! -s /data/droidpc-early-init ] && [ "$count" -lt 40 ]; do
-                /system/bin/sleep 0.25 2>/dev/null
-                count=$((count + 1))
-            done
-            if [ -s /data/droidpc-early-init ]; then
-                echo INIT_EARLY_INIT_OK
-                result=0
-            else
-                echo INIT_EARLY_INIT_TIMEOUT
-                result=1
-            fi
-            /system/bin/kill -9 "$init_pid" 2>/dev/null || true
-            wait "$init_pid" 2>/dev/null || true
-            exit "$result"
-        ' || status=$?
+        /system/bin/init second_stage || status=$?
 
 echo "INIT_PROBE_STATUS=$status"
+if [ -s "$tmp/data/droidpc-early-init" ]; then
+    echo "INIT_EARLY_INIT_OK"
+else
+    echo "INIT_EARLY_INIT_MISSING"
+fi
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"
 exit "$status"
