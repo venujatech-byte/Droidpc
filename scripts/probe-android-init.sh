@@ -104,6 +104,11 @@ for device in binder hwbinder vndbinder; do
     fi
     chmod 0666 "$tmp/binderfs/$device"
 done
+if sh -c 'exec 3<> "$1"' sh "$tmp/binderfs/binder" 2>/dev/null; then
+    echo "HOST_BINDER_OPEN_OK"
+else
+    echo "HOST_BINDER_OPEN_FAILED"
+fi
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
@@ -224,6 +229,14 @@ tail -n 120 "$tmp/kmsg"
 echo "--- Android init failures ---"
 grep -n -E 'Permission denied|reboot_on_failure|shutting down|could not be opened|Could not open|vold|binder|Fatal|failed to mount|exited with status' \
     "$tmp/kmsg" | tail -n 100 || true
+line=$(grep -n "Service boringssl_self_test32 has" "$tmp/kmsg" \
+    | head -n 1 | cut -d: -f1)
+if [ -n "$line" ]; then
+    start=$((line > 16 ? line - 16 : 1))
+    end=$((line + 4))
+    echo "--- BoringSSL self-test failure context ---"
+    sed -n "${start},${end}p" "$tmp/kmsg"
+fi
 if command -v ausearch >/dev/null 2>&1; then
     echo "--- Host SELinux denials ---"
     ausearch -m AVC,USER_AVC -ts recent -i 2>/dev/null \
