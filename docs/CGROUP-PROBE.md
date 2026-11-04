@@ -128,6 +128,26 @@ ueventd reports `Coldboot took 0.001 seconds`, init logs
 `ro.cold_boot_done=true`, and the custom `on init` action runs. This proves
 the service and trigger path in an empty private `/sys`; it does not test
 physical devices or a full Android boot. See [the device inventory](DEVICE-NODES.md).
+
+**Init trigger and `/dev` result (2026-11-04):** with a temporary ueventd
+receive-buffer override, the bounded probe printed `INIT_TRIGGER_OK`.
+Ueventd completed coldboot on the private empty `/sys`. The `/dev` listing
+contained standard nodes and Android's cgroup-related directories, but no
+Binder, DRM, input or sound nodes. This is expected because the probe passes
+no host device tree. Do not treat the listing as a host-device inventory.
+
+Read-only inspection of `/system/etc/cgroups.json` shows required v1
+`blkio`, `cpu` and `cpuset` descriptors; v1 `memory` is marked optional.
+Its v2 descriptor only declares the freezer at `/sys/fs/cgroup`. The
+API-28 `cgroups_28.json` adds required v1 `schedtune`. The corresponding
+API-28 task profiles move processes among `schedtune` groups and set
+`schedtune.boost` and `schedtune.prefer_idle`. The guest has no vendor
+cgroup or task-profile override. The next cgroup task is to design a minimal
+v2-compatible vendor override for the delegated `cpu`, `memory` and `pids`
+hierarchy, while preserving required process placement. Do not simply map
+`schedtune` onto a v2 controller; Linux cgroup v2 has no equivalent
+schedtune controller. Test the override in the bounded init probe before
+running Android's stock service sequence.
 Do not enable them in the current terminal's cgroup. The runtime needs an
 owned delegated parent with no processes before enabling domain controllers
 for guest children. The earlier host systemd probe established that an
