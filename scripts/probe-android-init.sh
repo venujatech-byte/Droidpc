@@ -47,7 +47,9 @@ SH
 cat > "$tmp/read-binder.sh" <<'SH'
 #!/system/bin/sh
 {
+    cat /proc/1/attr/current
     /system/bin/ls -lZ /dev/binder /dev/binderfs/binder
+    /system/bin/ls -lZ /system/bin/logd /system/bin/boringssl_self_test32
     if (exec 3<>/dev/binder); then
         echo BINDER_OPEN_OK
     else
@@ -233,4 +235,10 @@ tail -n 120 "$tmp/kmsg"
 echo "--- Android init failures ---"
 grep -n -E 'Permission denied|reboot_on_failure|shutting down|could not be opened|Could not open|vold|binder|Fatal|failed to mount|exited with status' \
     "$tmp/kmsg" | tail -n 100 || true
+if command -v ausearch >/dev/null 2>&1; then
+    echo "--- Host SELinux denials ---"
+    ausearch -m AVC,USER_AVC -ts recent -i 2>/dev/null \
+        | grep -E 'binder|system/bin/(logd|boringssl|vold)|denied' \
+        | tail -n 60 || true
+fi
 exit "$status"
