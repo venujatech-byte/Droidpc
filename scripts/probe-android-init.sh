@@ -18,6 +18,8 @@ printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
+    '    copy /sys/fs/cgroup/cgroup.controllers /data/droidpc-controllers' \
+    '    copy /sys/fs/cgroup/cgroup.subtree_control /data/droidpc-enabled' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -86,6 +88,15 @@ if [ -s "$tmp/data/droidpc-mounts" ]; then
 else
     echo "GUEST_MOUNT_LIST_MISSING"
 fi
+for name in controllers enabled; do
+    if [ -f "$tmp/data/droidpc-$name" ]; then
+        printf 'GUEST_CGROUP_%s=' "$name"
+        cat "$tmp/data/droidpc-$name"
+        printf '\n'
+    else
+        echo "GUEST_CGROUP_${name}_MISSING"
+    fi
+done
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"
 exit "$status"

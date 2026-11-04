@@ -237,8 +237,7 @@ disposable namespace before running init again.
 The focused `sudo ./scripts/probe-android-userns.sh` check passed directly
 inside Bubblewrap and a temporary user namespace: UID 1000, GID 1000 and
 `setgroups` all worked. The probe exposed only read-only `/usr` and `/lib64`.
-It changed no host mappings or files. This validates identity setup only;
-Android init has not yet been retried with this mapping.
+It changed no host mappings or files. The mapped init retry is below.
 
 Android init and the container are still not running.
 
@@ -252,8 +251,7 @@ Android services.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
-Bubblewrap's private device setup to provide standard device nodes. This
-revision has not yet been run.
+Bubblewrap's private device setup to provide standard device nodes.
 
 The private-device retry reached `early-init` as PID 1 and timed out as
 planned. The selected image attempted to mount v1 `blkio`, `cpu`, `cpuset`,
@@ -264,5 +262,13 @@ does not establish usable guest cgroups. The probe now copies `/proc/mounts`
 into temporary `/data` to show which cgroup mounts actually exist.
 The first copy used `/proc/mounts`, which is a symlink; Android init
 rejected it. The probe now reads `/proc/1/mounts` directly.
+
+The direct `/proc/1/mounts` read succeeded. Its only guest cgroup mount was
+cgroup v2 at `/sys/fs/cgroup`, with read-write mount options. The v1 mount
+failures remain. This is a working early-init probe, not a usable guest
+cgroup layout or a full Android boot.
+The probe now also captures the cgroup v2 controller lists without writing
+to the hierarchy. This will show which controllers are available to the
+guest before designing a vendor profile override.
 
 [aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp

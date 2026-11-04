@@ -66,7 +66,8 @@ This follows the [systemd delegation contract][delegation] and the kernel's
 The inspected images contain base cgroup and task-profile definitions,
 plus API-specific files for levels 28, 29 and 30. The vendor advertises
 first API level 28. Which definitions this patched build selects must be
-verified; the presence of a file alone does not establish selection.
+verified for task profiles; the cgroup probe now confirms the API-28
+`schedtune` descriptor was selected.
 
 Read-only `debugfs` inspection of the selected images found:
 
@@ -81,10 +82,12 @@ Read-only `debugfs` inspection of the selected images found:
   `/etc/task_profiles.json` override. Its `/android_guest.prop` contains only
   a comment, so it supplies no boot properties.
 
-These are image contents, not proof of the loader's chosen API files. If
-the API-28 files are loaded, a pure cgroup v2 mount cannot provide their
-`schedtune` behavior. Establish the selected load order and a real
-replacement for those actions before changing guest configuration.
+The PID 1 init probe attempted v1 `blkio`, `cpu`, `cpuset`, `memory` and
+`schedtune` mounts. All failed. It mounted cgroup v2 at `/sys/fs/cgroup`.
+This confirms the base and API-28 cgroup descriptors were selected in the
+tested init path. It does not confirm which task-profile actions run later.
+The host's cgroup v2 mount cannot provide `schedtune` behavior. Establish
+a real replacement for those actions before changing guest configuration.
 The [AOSP descriptor loader][aosp-descriptors] and
 [task-profile loader][aosp-profiles] read base, API-specific, then vendor
 files in that order. This is evidence for the expected behavior, not yet
