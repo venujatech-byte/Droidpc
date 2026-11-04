@@ -267,6 +267,16 @@ private IPC namespace exists, then checks both the device and its Android
 Binder instance inside the guest namespace. See [Android 13 init.rc](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/rootdir/init.rc)
 and the [kernel Binderfs guide](https://android.googlesource.com/kernel/common/%2B/864f2d3482f4b/Documentation/admin-guide/binderfs.rst).
 
+The guest Binder device now opens, but Android service managers cannot claim
+the Binder context manager: the host audit log records SELinux denials for
+`set_context_mgr` while the host policy is enforcing. The Android processes
+run in the host's `unconfined_t` domain because the probe does not load or
+replace the host SELinux policy. The BoringSSL diagnostic also found that the
+probe's global 64-bit `LD_LIBRARY_PATH` caused the 32-bit self-test to load a
+64-bit `libcrypto.so`; the override is removed so Android's generated linker
+configuration chooses libraries by ABI. A successful self-test will not by
+itself remove the separate host SELinux restriction.
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.

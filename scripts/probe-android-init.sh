@@ -138,8 +138,6 @@ unshare --user \
         --bind "$tmp/data" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig \
-        --setenv LD_LIBRARY_PATH \
-        /system/apex/com.android.runtime/lib64/bionic:/system/lib64 \
         --chdir / \
         /system/bin/init second_stage || status=$?
 
