@@ -15,7 +15,9 @@ mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
 touch "$tmp/kmsg"
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
-printf '%s\n' 'on early-init' '    write /data/droidpc-early-init PASS' \
+printf '%s\n' 'on early-init' \
+    '    write /data/droidpc-early-init PASS' \
+    '    copy /proc/mounts /data/droidpc-mounts' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -76,6 +78,13 @@ if [ -s "$tmp/data/droidpc-early-init" ]; then
     echo "INIT_EARLY_INIT_OK"
 else
     echo "INIT_EARLY_INIT_MISSING"
+fi
+if [ -s "$tmp/data/droidpc-mounts" ]; then
+    echo "--- Guest cgroup mounts ---"
+    awk '$3 == "cgroup" || $3 == "cgroup2" { print }' \
+        "$tmp/data/droidpc-mounts"
+else
+    echo "GUEST_MOUNT_LIST_MISSING"
 fi
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"

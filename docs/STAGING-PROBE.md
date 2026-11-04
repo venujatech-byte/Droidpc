@@ -254,3 +254,13 @@ The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes. This
 revision has not yet been run.
+
+The private-device retry reached `early-init` as PID 1 and timed out as
+planned. The selected image attempted to mount v1 `blkio`, `cpu`, `cpuset`,
+`memory` and `schedtune`; every attempt failed. The `SetupCgroups` action
+still reported success. The [AOSP setup loop][aosp-cgroup-setup] logs a
+warning and continues after each controller failure, so action success
+does not establish usable guest cgroups. The probe now copies `/proc/mounts`
+into temporary `/data` to show which cgroup mounts actually exist.
+
+[aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp
