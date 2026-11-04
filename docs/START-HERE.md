@@ -141,7 +141,8 @@ compatible set of devices, system calls, properties and hardware interfaces.
 
 Detailed evidence is in [SHELL-PROBE.md](SHELL-PROBE.md),
 [STAGING-PROBE.md](STAGING-PROBE.md), and
-[CGROUP-PROBE.md](CGROUP-PROBE.md). Older “next step” paragraphs in those
+[CGROUP-PROBE.md](CGROUP-PROBE.md). Candidate Android device paths are
+listed in [DEVICE-NODES.md](DEVICE-NODES.md). Older “next step” paragraphs in those
 logs describe what was next *at that time*; follow this file for the current
 order.
 
