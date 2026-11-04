@@ -26,6 +26,10 @@ cat > "$tmp/read-cgroup.sh" <<'SH'
 cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
 cat /sys/fs/cgroup/cgroup.subtree_control > /data/droidpc-enabled
 SH
+cat > "$tmp/read-dev.sh" <<'SH'
+#!/system/bin/sh
+/system/bin/ls -l /dev > /data/droidpc-devices
+SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
 linker='    exec -- /system/bin/bootstrap/linkerconfig'
 linker="$linker --target /linkerconfig/bootstrap"
@@ -51,6 +55,7 @@ printf '%s\n' \
     '    start ueventd' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
+    '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     > "$tmp/probe.rc"
 
 cleanup() {
@@ -94,6 +99,7 @@ unshare --user \
         --tmpfs /tmp \
         --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
+        --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
@@ -135,6 +141,12 @@ for name in controllers enabled; do
         echo "GUEST_CGROUP_${name}_MISSING"
     fi
 done
+if [ -f "$tmp/data/droidpc-devices" ]; then
+    echo "--- Guest /dev entries ---"
+    cat "$tmp/data/droidpc-devices"
+else
+    echo "GUEST_DEVICE_LIST_MISSING"
+fi
 echo "--- Android init log ---"
 sed -n '1,160p' "$tmp/kmsg"
 exit "$status"
