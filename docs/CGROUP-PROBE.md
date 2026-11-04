@@ -70,6 +70,27 @@ This placement is needed before the guest can enable domain controllers
 for its own child groups. A writable cgroup v2 mount alone is insufficient.
 Do not write to the current terminal scope or enable controllers there.
 
+The placement check is in `scripts/probe-cgroup-placement.py`. Run it from
+the repository root without sudo:
+
+```sh
+systemd-run --user --wait --pipe --collect \
+  --unit=droidpc-cgroup-placement \
+  --property='Delegate=cpu memory pids' \
+  --property=RuntimeMaxSec=15s \
+  /usr/bin/python3 "$PWD/scripts/probe-cgroup-placement.py"
+```
+
+It uses only that temporary delegated unit. A child enters a cgroup
+namespace rooted at `guest`, moves to `guest/init`, and enables controllers
+on the now-empty `guest` parent. The script removes its guest leaves;
+systemd collects the unit. This checks placement mechanics without
+starting Android or writing outside the assigned subtree.
+Observed on this host: all three checks passed in 135 ms. The transient
+service reported success and was collected. This proves the hierarchy
+placement pattern; it does not yet prove Android's profiles or service
+process placement.
+
 ## Guest cgroups: configuration work remains
 
 The inspected images contain base cgroup and task-profile definitions,
