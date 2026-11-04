@@ -106,22 +106,11 @@ for device in binder hwbinder vndbinder; do
 done
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
-uid_start=$(awk -F: -v name="$SUDO_USER" \
-    '$1 == name && $3 >= 65535 { print $2; exit }' /etc/subuid)
-gid_start=$(awk -F: -v name="$SUDO_USER" \
-    '$1 == name && $3 >= 65535 { print $2; exit }' /etc/subgid)
-if [ -z "$uid_start" ] || [ -z "$gid_start" ]; then
-    echo "Missing subordinate UID/GID range" >&2
-    exit 1
-fi
-
 status=0
 timeout --signal=TERM --kill-after=2s 45s \
 unshare --user \
-    --map-users=0:0:1 \
-    --map-users="1:$uid_start:65535" \
-    --map-groups=0:0:1 \
-    --map-groups="1:$gid_start:65535" \
+    --map-users=0:0:65536 \
+    --map-groups=0:0:65536 \
     --setgroups=allow --setuid=0 --setgid=0 \
     /usr/bin/bwrap \
         --unshare-pid --unshare-ipc --unshare-uts \

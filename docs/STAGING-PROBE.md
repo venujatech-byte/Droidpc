@@ -249,6 +249,17 @@ The probe now starts init directly as PID 1 in its private PID namespace and
 stores the marker in its own temporary `/data`. It does not start the stock
 Android services.
 
+**Android image ownership mapping (2026-11-05):** the first full stock-init
+run exposed a flaw in the earlier mapping. It mapped guest ID 0 to host root,
+then mapped other guest IDs to subordinate host IDs. Image files keep their
+numeric Android owners, so a guest service UID such as `logd` (1036) could not
+match the image's UID 1036; `/system/bin/logd` is mode `0550`. The boot probe
+now identity-maps IDs 0–65535 inside its temporary user namespace so Android
+service IDs can access their image files. The next bounded run must confirm
+whether this also clears the early BoringSSL failure. Binder still returned
+`Permission denied` despite a `0666` binderfs device; SELinux diagnostics are
+being captured to determine whether that has a separate cause.
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.
