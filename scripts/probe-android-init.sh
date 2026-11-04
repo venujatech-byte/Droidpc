@@ -14,6 +14,13 @@ tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
 touch "$tmp/kmsg"
+debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
+    | sed 's/^uevent_socket_rcvbuf_size 16M$/uevent_socket_rcvbuf_size 256K/' \
+    > "$tmp/ueventd.rc"
+if ! grep -q '^uevent_socket_rcvbuf_size 256K$' "$tmp/ueventd.rc"; then
+    echo "Could not prepare temporary ueventd configuration" >&2
+    exit 1
+fi
 cat > "$tmp/read-cgroup.sh" <<'SH'
 #!/system/bin/sh
 cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
@@ -80,6 +87,7 @@ unshare --user \
         --die-with-parent --as-pid-1 \
         --clearenv --cap-add ALL \
         --ro-bind "$tmp/system" / \
+        --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
         --dir /dev/socket \

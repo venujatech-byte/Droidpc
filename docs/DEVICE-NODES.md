@@ -59,6 +59,15 @@ normally listens to kernel uevent sockets, scans sysfs, creates device
 nodes, and applies image-specific permissions. The cgroup and startup probes
 have not tested a safe, filtered replacement for those operations.
 
+The socket itself, all-groups bind, and credential option work in the
+disposable namespace. The image requests a 16 MiB receive buffer. Forcing
+that buffer fails with `EPERM`; requesting 256 KiB succeeds and the kernel
+reports an effective 512 KiB buffer. The init probe now overlays a temporary
+copy of the guest ueventd config with that smaller buffer request. This is a
+diagnostic experiment; it does not edit the image or establish a final buffer
+setting for production. The next run will show whether this explains
+ueventd's startup failure.
+
 ## Current boundary and next investigation
 
 Image source inspected with read-only `debugfs`:

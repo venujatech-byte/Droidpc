@@ -152,7 +152,8 @@ The newest init probe declares and starts the guest's `ueventd` service.
 Its `/sys` and `/dev` are private, so no host device tree is passed through.
 The probe checks whether ueventd completes coldboot and Android reaches its
 `on init` action. It does not expose physical host devices or establish a
-full boot.
+full boot. It temporarily lowers the guest's requested uevent socket buffer
+to test a suspected permission failure; the source image stays read-only.
 
 Run this complete command from the repository root:
 
