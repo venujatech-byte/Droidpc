@@ -207,4 +207,31 @@ must not be allowed to write into the host cgroup tree. See Android 13
 [`security.cpp`](https://android.googlesource.com/platform/system/core/%2B/95cc6b6f013bc52818dd7eda89632f4fdf21285f/init/security.cpp)
 and [`init.cpp`](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/init/init.cpp).
 
+**Property and linkerconfig probe (2026-11-04):** a private `/mnt` tmpfs
+allowed `SetupMountNamespaces` to complete. Init loaded
+`ro.vndk.version=33`; binding `/dev/__properties__` to a temporary host
+directory preserved the property area after init was stopped. A separate
+Bubblewrap stage bootstrapped APEX and generated a nonempty
+`/linkerconfig/ld.config.txt`; `/system/bin/sh` then ran successfully. The
+expected initial linker warnings occur before the bootstrap config exists.
+The init stage still logs cgroup setup failures in its private `/sys` and
+`/dev` trees. No Android services or graphics were started.
+
+**Host cgroup delegation (2026-11-04):** the existing
+`scripts/probe-cgroups.py` passed in a temporary systemd delegated service.
+It created and removed an empty child cgroup and read back temporary CPU,
+memory, and PID limits. This verifies host delegation only, not the guest's
+cgroup configuration.
+
+**Guest ID-map probe (2026-11-04):** the Bubblewrap invocation used by the
+init probe reported only `0 0 1` in both `/proc/self/uid_map` and
+`gid_map`. The host has `venujasilva:524288:65536` in both `/etc/subuid` and
+`/etc/subgid`, and unprivileged `unshare --user --map-auto
+--map-root-user` reported mappings `0 1000 1` and `1 524288 65535`. Thus the
+host has subordinate ranges, but the init probe did not use them. Its
+`lchown()` failures for Android-owned cgroup paths and service `setgroups`
+failure remain unresolved. Do not infer that the wider map alone fixes the
+`setgroups` restriction; verify both mappings and setgroups behavior in a
+disposable namespace before running init again.
+
 Android init and the container are still not running.
