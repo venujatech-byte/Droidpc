@@ -260,6 +260,13 @@ whether this also clears the early BoringSSL failure. Binder still returned
 `Permission denied` despite a `0666` binderfs device; SELinux diagnostics are
 being captured to determine whether that has a separate cause.
 
+The host-side Binder open succeeded while the same device failed inside the
+guest namespace. The probe now mounts Binderfs from Android init after the
+private IPC namespace exists, then checks both the device and its Android
+`/dev/binder` link. This follows the Android init setup pattern and keeps the
+Binder instance inside the guest namespace. See [Android 13 init.rc](https://android.googlesource.com/platform/system/core/%2B/refs/heads/android13-release/rootdir/init.rc)
+and the [kernel Binderfs guide](https://android.googlesource.com/kernel/common/%2B/864f2d3482f4b/Documentation/admin-guide/binderfs.rst).
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.

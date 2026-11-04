@@ -20,13 +20,12 @@ tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
-    umount "$tmp/binderfs" 2>/dev/null || true
     rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
-mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data" "$tmp/binderfs"
+mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
 touch "$tmp/kmsg"
 debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
     | sed 's/^uevent_socket_rcvbuf_size 16M$/uevent_socket_rcvbuf_size 256K/' \
@@ -50,12 +49,19 @@ cat > "$tmp/read-binder.sh" <<'SH'
     cat /proc/1/attr/current
     /system/bin/ls -lZ /dev/binder /dev/binderfs/binder
     /system/bin/ls -lZ /system/bin/logd /system/bin/boringssl_self_test32
-    if (exec 3<>/dev/binder); then
-        echo BINDER_OPEN_OK
+    if (exec 3<>/dev/binderfs/binder); then
+        echo BINDERFS_DEVICE_OPEN_OK
     else
-        echo BINDER_OPEN_FAILED
+        echo BINDERFS_DEVICE_OPEN_FAILED
+    fi
+    if (exec 4<>/dev/binder); then
+        echo BINDER_LINK_OPEN_OK
+    else
+        echo BINDER_LINK_OPEN_FAILED
     fi
 } > /data/droidpc-binder 2>&1
+/system/bin/boringssl_self_test32 > /data/droidpc-boringssl 2>&1
+echo "$?" > /data/droidpc-boringssl-status
 SH
 cat > "$tmp/read-profile.sh" <<'SH'
 #!/system/bin/sh
@@ -67,6 +73,11 @@ printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
+    '    mkdir /dev/binderfs 0755 root root' \
+    '    mount binder binder /dev/binderfs' \
+    '    chmod 0666 /dev/binderfs/binder' \
+    '    chmod 0666 /dev/binderfs/hwbinder' \
+    '    chmod 0666 /dev/binderfs/vndbinder' \
     '    symlink /dev/binderfs/binder /dev/binder' \
     '    symlink /dev/binderfs/hwbinder /dev/hwbinder' \
     '    symlink /dev/binderfs/vndbinder /dev/vndbinder' \
@@ -96,19 +107,6 @@ printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
-mount -t binder binder "$tmp/binderfs"
-for device in binder hwbinder vndbinder; do
-    if [ ! -c "$tmp/binderfs/$device" ]; then
-        echo "Binderfs did not create $device" >&2
-        exit 1
-    fi
-    chmod 0666 "$tmp/binderfs/$device"
-done
-if sh -c 'exec 3<> "$1"' sh "$tmp/binderfs/binder" 2>/dev/null; then
-    echo "HOST_BINDER_OPEN_OK"
-else
-    echo "HOST_BINDER_OPEN_FAILED"
-fi
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
@@ -128,8 +126,6 @@ unshare --user \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
         --dir /dev/socket \
-        --dir /dev/binderfs \
-        --bind "$tmp/binderfs" /dev/binderfs \
         --tmpfs /tmp \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
@@ -185,6 +181,13 @@ if [ -f "$tmp/data/droidpc-binder" ]; then
     cat "$tmp/data/droidpc-binder"
 else
     echo "GUEST_BINDER_CHECK_MISSING"
+fi
+if [ -f "$tmp/data/droidpc-boringssl-status" ]; then
+    printf 'BORINGSSL_SELF_TEST32_STATUS='
+    cat "$tmp/data/droidpc-boringssl-status"
+    cat "$tmp/data/droidpc-boringssl"
+else
+    echo "BORINGSSL_SELF_TEST32_DIAGNOSTIC_MISSING"
 fi
 if grep -q "Command 'task_profiles HighPerformance'.*failed" \
     "$tmp/kmsg"; then
