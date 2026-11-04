@@ -16,6 +16,15 @@ root=$(pwd -P)
 system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
+
+cleanup() {
+    umount "$tmp/vendor" 2>/dev/null || true
+    umount "$tmp/system" 2>/dev/null || true
+    umount "$tmp/binderfs" 2>/dev/null || true
+    rm -rf -- "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data" "$tmp/binderfs"
 touch "$tmp/kmsg"
@@ -41,32 +50,14 @@ cat /proc/1/cgroup > /data/droidpc-profile-cgroup
 getprop ro.bootmode > /data/droidpc-bootmode
 getprop ro.crypto.state > /data/droidpc-crypto-state
 SH
-printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
-linker='    exec -- /system/bin/bootstrap/linkerconfig'
-linker="$linker --target /linkerconfig/bootstrap"
-config='    copy /linkerconfig/bootstrap/ld.config.txt'
-config="$config /linkerconfig/default/ld.config.txt"
 printf '%s\n' \
-    'service ueventd /system/bin/ueventd' \
-    '    class core' \
-    '    critical' \
-    '    seclabel u:r:ueventd:s0' \
-    '    shutdown critical' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
     '    symlink /dev/binderfs/binder /dev/binder' \
     '    symlink /dev/binderfs/hwbinder /dev/hwbinder' \
     '    symlink /dev/binderfs/vndbinder /dev/vndbinder' \
-    '    mkdir /linkerconfig/bootstrap 0755' \
-    '    mkdir /linkerconfig/default 0755' \
-    "$linker" \
-    "$config" \
-    '    mount none /linkerconfig/bootstrap /linkerconfig bind rec' \
-    '    exec -- /system/bin/apexd --bootstrap' \
-    '    update_linker_config' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
-    '    start ueventd' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
@@ -80,13 +71,14 @@ printf '%s\n' \
     '    write /data/droidpc-boot-completed PASS' \
     > "$tmp/probe.rc"
 
-cleanup() {
-    umount "$tmp/vendor" 2>/dev/null || true
-    umount "$tmp/system" 2>/dev/null || true
-    umount "$tmp/binderfs" 2>/dev/null || true
-    rm -rf -- "$tmp"
-}
-trap cleanup EXIT HUP INT TERM
+debugfs -R 'cat /system/etc/init/hw/init.rc' "$system" \
+    2>/dev/null > "$tmp/init.rc"
+if ! grep -q '^on late-init$' "$tmp/init.rc"; then
+    echo "Could not read the image's primary init.rc" >&2
+    exit 1
+fi
+cat "$tmp/probe.rc" >> "$tmp/init.rc"
+printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
@@ -123,6 +115,7 @@ unshare --user \
         --die-with-parent --as-pid-1 \
         --clearenv --cap-add ALL \
         --ro-bind "$tmp/system" / \
+        --ro-bind "$tmp/init.rc" /system/etc/init/hw/init.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
@@ -130,7 +123,6 @@ unshare --user \
         --dir /dev/binderfs \
         --bind "$tmp/binderfs" /dev/binderfs \
         --tmpfs /tmp \
-        --ro-bind "$tmp/probe.rc" /tmp/droidpc-probe.rc \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
@@ -139,9 +131,7 @@ unshare --user \
         --bind "$tmp/sys" /sys \
         --bind "$tmp/kmsg" /dev/kmsg \
         --bind "$tmp/data" /data --tmpfs /mnt \
-        --tmpfs /apex --dir /apex/com.android.runtime \
-        --ro-bind "$tmp/system/system/apex/com.android.runtime" \
-        /apex/com.android.runtime \
+        --tmpfs /apex \
         --tmpfs /linkerconfig \
         --setenv LD_LIBRARY_PATH \
         /system/apex/com.android.runtime/lib64/bionic:/system/lib64 \

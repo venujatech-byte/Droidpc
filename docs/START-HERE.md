@@ -151,10 +151,12 @@ order.
 The bounded boot probe repeats the confirmed ueventd checks, mounts a
 private Binder filesystem, and asks Android init to apply the image's
 `HighPerformance` task profile to PID 1. It records `ro.bootmode` and marks
-whether Android processes its `charger` or `late-init` event. This tells us
-whether charger mode explains the previous halt. System and
-vendor images stay read-only. `/proc/sys`, `/sys`, `/dev`, and Binder stay
-private to the probe.
+whether Android processes its `charger` or `late-init` event. The last run
+reached `late-init`, but `androidboot.init_rc` had replaced the image's
+primary startup file with our small probe file. This version appends the
+diagnostics to a temporary copy of the stock init file, so Android keeps its
+normal startup actions. The source images stay read-only; `/proc/sys`,
+`/sys`, `/dev`, and Binder stay private to the probe.
 
 Run this complete command from the repository root:
 

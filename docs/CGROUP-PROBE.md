@@ -156,10 +156,14 @@ guest configuration.
 The bounded Android startup probe asks init to apply `HighPerformance` to
 PID 1 and records `/proc/1/cgroup` afterward. The last run reported no
 command failure, but PID 1 remained at `0::/`; this is not evidence of
-successful placement. The probe now records `ro.bootmode` and whether init
-processes its `charger` or `late-init` event. Normal startup has not yet been
-confirmed. It uses private Binder devices and does not change image files or
-host cgroup settings.
+successful placement. It also reported `ro.bootmode=unknown` and processed
+the `late-init` marker. However, `androidboot.init_rc` selected the probe
+file as init's primary rc file, replacing the stock startup actions. The
+updated probe appends its checks to a temporary copy of the stock rc file.
+This preserves the image's normal service and mount sequence while keeping
+the source image read-only. It uses private Binder devices and private host
+mounts. The [Android 13 init documentation][init-rc] describes the primary
+rc selection.
 
 The [AOSP descriptor loader][aosp-descriptors] and
 [task-profile loader][aosp-profiles] read base, API-specific, then vendor
@@ -218,3 +222,4 @@ Android startup code has been added until those details are established.
 [android-cgroups]: https://source.android.com/docs/core/perf/cgroups
 [aosp-descriptors]: https://android.googlesource.com/platform/system/core/%2B/1d02727c47b64cf377b1376d8c9ee4e840b2c526/libprocessgroup/util/util.cpp
 [aosp-profiles]: https://android.googlesource.com/platform/system/core.git/%2B/b65b8835e509fc14407c8263da69abd3fb03e54f/libprocessgroup/task_profiles.cpp
+[init-rc]: https://android.googlesource.com/platform/system/core/%2B/refs/tags/android-13.0.0_r34/init/README.md
