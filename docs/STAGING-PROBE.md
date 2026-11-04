@@ -273,5 +273,9 @@ guest before designing a vendor profile override.
 Android init's `copy` command rejected both cgroupfs control files as
 insecure, so that attempt did not reveal their contents. The next bounded
 probe reads them through a guest shell action into temporary `/data`.
+The shell action started, but `execv` returned `ENOENT`. The selected image
+links `/system/bin/linker64` to the runtime APEX. The custom init script
+had skipped the image's linkerconfig and APEX bootstrap actions. The probe
+now includes those actions before launching the shell; this is unverified.
 
 [aosp-cgroup-setup]: https://android.googlesource.com/platform/system/core/%2B/691e0e154ad3d666bcd3fb6d21c563700a31ff2f/libprocessgroup/setup/cgroup_map_write.cpp

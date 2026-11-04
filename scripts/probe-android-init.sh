@@ -20,9 +20,20 @@ cat /sys/fs/cgroup/cgroup.controllers > /data/droidpc-controllers
 cat /sys/fs/cgroup/cgroup.subtree_control > /data/droidpc-enabled
 SH
 printf '%s\n' 'androidboot.init_rc=/tmp/droidpc-probe.rc' > "$tmp/cmdline"
+linker='    exec -- /system/bin/bootstrap/linkerconfig'
+linker="$linker --target /linkerconfig/bootstrap"
+config='    copy /linkerconfig/bootstrap/ld.config.txt'
+config="$config /linkerconfig/default/ld.config.txt"
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
+    '    mkdir /linkerconfig/bootstrap 0755' \
+    '    mkdir /linkerconfig/default 0755' \
+    "$linker" \
+    "$config" \
+    '    mount none /linkerconfig/bootstrap /linkerconfig bind rec' \
+    '    exec -- /system/bin/apexd --bootstrap' \
+    '    update_linker_config' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
     > "$tmp/probe.rc"
 
