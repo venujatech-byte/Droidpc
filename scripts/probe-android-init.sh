@@ -13,6 +13,7 @@ vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
+touch "$tmp/coldboot_done"
 touch "$tmp/kmsg"
 cat > "$tmp/read-cgroup.sh" <<'SH'
 #!/system/bin/sh
@@ -24,7 +25,7 @@ linker='    exec -- /system/bin/bootstrap/linkerconfig'
 linker="$linker --target /linkerconfig/bootstrap"
 config='    copy /linkerconfig/bootstrap/ld.config.txt'
 config="$config /linkerconfig/default/ld.config.txt"
-# shortcut: skip ueventd here; real boot must finish coldboot first.
+# shortcut: preseed private coldboot marker; real boot must run ueventd.
 printf '%s\n' 'on early-init' \
     '    write /data/droidpc-early-init PASS' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
@@ -36,7 +37,6 @@ printf '%s\n' 'on early-init' \
     '    exec -- /system/bin/apexd --bootstrap' \
     '    update_linker_config' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-cgroup.sh' \
-    '    write /dev/.coldboot_done PASS' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
     > "$tmp/probe.rc"
@@ -85,6 +85,7 @@ unshare --user \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
         --bind "$tmp/kmsg" /dev/kmsg \
+        --ro-bind "$tmp/coldboot_done" /dev/.coldboot_done \
         --bind "$tmp/data" /data --tmpfs /mnt \
         --tmpfs /apex --dir /apex/com.android.runtime \
         --ro-bind "$tmp/system/system/apex/com.android.runtime" \

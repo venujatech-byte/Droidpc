@@ -147,8 +147,8 @@ order.
 
 ## 5. The one new check to run now
 
-The newest init probe now marks coldboot complete **only inside the test**
-and checks whether Android's `on init` action runs. Normal Android boot must
+The newest init probe preloads a coldboot marker in private `/dev` **only
+inside the test** and checks whether Android's `on init` action runs. Normal Android boot must
 start `ueventd` and wait for real device discovery. This test cannot replace
 that work.
 
