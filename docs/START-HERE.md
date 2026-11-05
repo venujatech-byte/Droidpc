@@ -203,6 +203,19 @@ The host's Android guest config and earlier startup log show a Mesa/GBM render-n
 path; the probe now passes that node through when present. It also captures
 the SystemServer process and latest ANR trace at 110 seconds.
 
+The probe is diagnostic, not the production container. The installed Android guest
+LXC config binds persistent `/data`, stages Wayland and Pulse under
+`/run/xdg`, and binds the host-generated `/vendor/android_guest.prop`. This probe
+uses disposable `/data`, stages Wayland under `/run/user/<uid>`, and does not
+install that generated vendor property file. An older Android guest ANR dump shows
+`system_server`'s main thread idle in its normal looper, but it does not record
+`sys.boot_completed`; it cannot establish a successful boot. The current probe
+therefore does not establish a working Android container. The next runtime
+milestone is to implement Droidpc's own isolated mounts and lifecycle with
+persistent data, then validate boot through `sys.boot_completed=1` and a
+responsive package manager. Repeating this init probe alone cannot complete
+that milestone.
+
 The plain probe process uses the host's `unconfined_t` SELinux domain;
 Android's SELinux policy is not loaded into the shared host kernel. Init also
 logs permission failures while setting ownership and mode on
