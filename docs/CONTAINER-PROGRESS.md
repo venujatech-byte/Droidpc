@@ -16,9 +16,12 @@
   `DeviceStateManagerService`. The selected vendor image has no
   `/vendor/etc/devicestate/device_state_configuration.xml`, so its default
   provider has no sensor conditions to query; the missing sensor HAL alone
-  does not explain that stall. The probe now polls for boot completion and
-  saves the first SystemServer ANR trace as soon as it appears, before the
-  slower native debugger dump.
+  does not explain that stall. Separately, the vendor Sensors HAL checks
+  `android_guest.stub_sensors_hal`; the host-generated property file sets it when
+  the host sensor daemon is absent, but the probe had omitted it. The probe
+  now supplies that image-required stub setting and reports its effective
+  value. It also polls for boot completion and saves the first SystemServer
+  ANR trace before the slower native debugger dump.
 
 ## Blocking runtime contract
 

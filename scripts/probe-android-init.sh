@@ -134,6 +134,7 @@ getprop ro.hardware.egl > /data/droidpc-hardware-egl
 getprop ro.hardware.gralloc > /data/droidpc-hardware-gralloc
 getprop ro.hardware.vulkan > /data/droidpc-hardware-vulkan
 getprop sys.use_memfd > /data/droidpc-use-memfd
+getprop android_guest.stub_sensors_hal > /data/droidpc-stub-sensors-hal
 SH
 cat > "$tmp/read-final-state.sh" <<'SH'
 #!/system/bin/sh
@@ -245,6 +246,7 @@ else
         'ro.hardware.vulkan=pastel' >> "$tmp/system-build.prop"
 fi
 printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
+printf '%s\n' 'android_guest.stub_sensors_hal=1' > "$tmp/vendor-android_guest.prop"
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
@@ -270,6 +272,7 @@ set -- "$@" \
         --ro-bind "$tmp/zygote.rc" /system/etc/init/hw/init.zygote64_32.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
+        --ro-bind "$tmp/vendor-android_guest.prop" /vendor/android_guest.prop \
         --proc /proc --dev /dev \
         --dir /dev/socket --tmpfs /tmp
 if [ -n "$render_node" ]; then
@@ -388,7 +391,8 @@ for name in bootmode crypto-state; do
         echo "UNAVAILABLE"
     fi
 done
-for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan use-memfd; do
+for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan \
+    use-memfd stub-sensors-hal; do
     label=$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')
     printf 'GUEST_%s=' "$label"
     if [ -f "$tmp/data/droidpc-$name" ]; then
