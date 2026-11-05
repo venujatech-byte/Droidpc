@@ -40,8 +40,8 @@ if ! grep -q '^uevent_socket_rcvbuf_size 256K$' "$tmp/ueventd.rc"; then
     exit 1
 fi
 debugfs -R 'cat /system/etc/init/lmkd.rc' "$system" 2>/dev/null \
-    | sed 's/^    user lmkd$/    user root/' > "$tmp/lmkd.rc"
-if ! grep -q '^    user root$' "$tmp/lmkd.rc"; then
+    > "$tmp/lmkd.rc"
+if ! grep -q '^    user lmkd$' "$tmp/lmkd.rc"; then
     echo "Could not prepare temporary lmkd service configuration" >&2
     exit 1
 fi
@@ -135,9 +135,16 @@ mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
+# PSI exposes writable triggers to its owning UID; Android's lmkd is UID 1069.
 set -- /usr/bin/unshare --user \
-    --map-users=0:0:65536 \
-    --map-groups=0:0:65536 \
+    --map-users=0:0:1069 \
+    --map-users=1069:65534:1 \
+    --map-users=1070:1070:64464 \
+    --map-users=65534:65535:2 \
+    --map-groups=0:0:1069 \
+    --map-groups=1069:65534:1 \
+    --map-groups=1070:1070:64464 \
+    --map-groups=65534:65535:2 \
     --setgroups=allow --setuid=0 --setgid=0 \
     /usr/bin/bwrap \
         --unshare-pid --unshare-ipc --unshare-uts \

@@ -307,15 +307,16 @@ starting services. `zygote` then exited after init could not set its priority,
 and `lmkd` eventually exited four times and caused a fatal reboot. Running
 `lmkd` as guest root did not prevent its later failures.
 
-The next diagnostic captures logcat to temporary `/data`, removes the
-zygote's unsupported `priority -20` setting, and sets
-`init.svc_debug.no_fatal.lmkd=true` to let init continue long enough to
-capture `lmkd`'s exit reason. The last run reached the full 45-second timeout;
-ART started and accepted zygote socket connections, but Android did not set
-`sys.boot_completed=1`. The logcat filter was missing Android's
-`lowmemorykiller` tag and now includes it. The lmkd property and zygote change
-affect only the temporary probe configuration. The probe process tree retains
-its temporary 1 GiB memlock limit; the host's global limit is unchanged.
+Logcat showed that `lmkd` exits because PSI monitor access returns `EACCES`,
+and there is no cgroup-v1 `memory.pressure_level` fallback. The latest run
+reached the full 45-second timeout; ART started and accepted zygote socket
+connections, but Android did not set `sys.boot_completed=1`. The next probe
+maps only Android `lmkd` UID/GID 1069 to host `nobody`, the owner of the host
+PSI file, and restores its normal Android service identity. This scoped
+mapping is intended to allow unprivileged PSI triggers; it has not yet been
+verified in a guest run. The lmkd/zygote overrides and 1 GiB memlock limit
+affect only the temporary probe configuration; the host's global limit is
+unchanged.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
