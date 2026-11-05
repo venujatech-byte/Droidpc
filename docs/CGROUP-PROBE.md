@@ -180,11 +180,14 @@ interfaces. Symlinking every old path to one v2 directory does not reproduce
 these semantics. Empty fake control files would hide errors, not enforce
 limits, and will not be used.
 
-AOSP documents vendor overrides at `/vendor/etc/cgroups.json` and
-`/vendor/etc/task_profiles.json`. The guest's setup library contains the
-vendor cgroup path, and its process-group library contains the vendor task
-profile path. These observations support investigating an overlay-based
-configuration; they do not prove the exact load order of this patched build.
+AOSP documents that vendor `/vendor/etc/cgroups.json` and
+`/vendor/etc/task_profiles.json` load after the base and API-specific files;
+same-name vendor definitions override earlier definitions. This gives the
+probe a way to test replacement profiles without changing the image. The
+selected image's patched `libprocessgroup` behavior still needs confirmation,
+and the v2 controller hierarchy must be placed and enabled before these
+profiles can be considered functional. Any experiment should bind temporary
+files into the guest namespace only, leaving the source images unchanged.
 
 Before starting Android init, determine which mappings the guest actually
 uses, which actions are required during startup, and whether safe vendor
