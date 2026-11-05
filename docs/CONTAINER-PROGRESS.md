@@ -48,8 +48,12 @@
   [Upstream libdrm's Linux node identification and PCI discovery code](https://android.googlesource.com/platform/external/libdrm/+/refs/heads/main/xf86drm.c)
   confirms this dependency. This is a likely additional cause of failed Mesa
   device discovery, not proof of the exact failing call in the supplied run.
-  A minimum read-only GPU sysfs view is still required; do not expose writable
-  host sysfs as a workaround.
+  The probe now supplies a private snapshot of selected PCI GPU identification
+  files and DRM node metadata, preserving relative discovery links under
+  `/sys/dev`, `/sys/devices`, `/sys/bus`, and `/sys/class`. These subtrees are
+  bound read-only. The snapshot excludes device controls and unrelated host
+  devices. Fixture tests verify link resolution and exclusion of a `remove`
+  control; actual Mesa discovery with the snapshot remains unverified.
 
 ## Blocking runtime contract
 
@@ -87,9 +91,19 @@ The current agent environment has no `/dev/loop-control` or `/dev/dri`, no
 effective capabilities, and `NoNewPrivs=1`. There is no connected host shell
 tool. Local compilation and unit tests cannot prove this privileged gate.
 
-Implement the minimum selected-GPU sysfs view before requesting another full
-boot probe. Then check whether the matching card and vendor allocator let SurfaceFlinger
-stay up and whether the stub property is effective. If SurfaceFlinger remains
+The next host boot run should use the current probe, which includes the PCI
+GPU sysfs snapshot, private graphics-group device nodes, matched primary card,
+and correct vendor allocator property:
+
+```sh
+sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
+```
+
+Keep the `HOST_DRM_CARD` line, `Android graphics user DRM access` section,
+effective graphics properties, and final boot/service state. These establish
+whether device access succeeds, the allocator starts, and SurfaceFlinger
+stays up. An empty `sys.boot_completed` still means boot is unproven. If
+SurfaceFlinger remains
 stable, use the ANR capture to identify the next framework blocker. Then
 implement and verify the confined SELinux transition and supervised lifecycle
 with persistent `/data`; the permissive diagnostic policy is not runtime
