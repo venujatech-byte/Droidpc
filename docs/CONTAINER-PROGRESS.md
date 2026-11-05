@@ -105,6 +105,15 @@ an empty `/sys` returned zero GPUs. This establishes actual host-library
 device discovery with the snapshot; the Android vendor library and Mesa
 initialization still require the guest boot run.
 
+The selected vendor `/lib64/libdrm.so` was then tested directly with extracted
+Android Bionic runtime libraries and the system image's libc++. A temporary
+minimal ELF called `drmGetDevices2` inside unprivileged Bubblewrap namespaces
+with the snapshot and host DRM nodes visible. It found exactly one GPU,
+freed the device list, printed `VENDOR_DRM_ONE_GPU`, and exited zero. The
+minimal environment emitted the expected missing-linkerconfig warning.
+This verifies Android vendor-library discovery, not EGL/Mesa rendering,
+allocator operation, privileged image staging, or Android boot completion.
+
 The next host boot run should use the current probe, which includes the PCI
 GPU sysfs snapshot, private graphics-group device nodes, matched primary card,
 and correct vendor allocator property:
