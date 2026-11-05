@@ -200,6 +200,8 @@ getprop sys.use_memfd > /data/droidpc-use-memfd
 getprop android_guest.stub_sensors_hal > /data/droidpc-stub-sensors-hal
 getprop android_guest.host.uid > /data/droidpc-host-uid
 getprop android_guest.host.gid > /data/droidpc-host-gid
+cat /proc/1/uid_map > /data/droidpc-uid-map
+cat /proc/1/gid_map > /data/droidpc-gid-map
 SH
 cat > "$tmp/read-final-state.sh" <<'SH'
 #!/system/bin/sh
@@ -489,6 +491,15 @@ for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan \
         cat "$tmp/data/droidpc-$name"
     else
         echo "UNAVAILABLE"
+    fi
+done
+for name in uid-map gid-map; do
+    printf 'GUEST_%s=' "$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
+    if [ -f "$tmp/data/droidpc-$name" ]; then
+        tr '\n' ';' < "$tmp/data/droidpc-$name"
+        printf '\n'
+    else
+        echo UNAVAILABLE
     fi
 done
 if [ -f "$tmp/data/droidpc-final-state" ]; then
