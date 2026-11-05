@@ -154,12 +154,13 @@ The latest run reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`. The
 remains. The debug console's no-controlling-tty warning is expected; status
 124 is the probe's 45-second timeout. Logcat identifies `lmkd`'s remaining
 restart cause: PSI monitor access returns `EACCES`, and this kernel has no
-cgroup-v1 `memory.pressure_level` fallback. The probe now maps Android's
-`lmkd` UID/GID to host `nobody`, the owner of `/proc/pressure/memory`, while
-keeping the rest of Android in the user namespace. This tests PSI access
-without granting host-wide capabilities. SurfaceFlinger and several hardware
-services also fail in this headless container; the next run will show whether
-the `lmkd` change advances framework startup.
+cgroup-v1 `memory.pressure_level` fallback. Linux restricts unprivileged PSI
+monitors to 2-second-multiple windows, while this Android `lmkd` uses a
+1-second window, so mapping its UID to the PSI file owner cannot solve the
+failure. SurfaceFlinger and several hardware services also fail in this
+headless container. Further progress requires host-level `CAP_SYS_RESOURCE`
+or a different runtime/kernel boundary; the current user-namespace probe
+cannot grant that capability.
 
 The plain probe process uses the host's `unconfined_t` SELinux domain;
 Android's SELinux policy is not loaded into the shared host kernel. Init also
@@ -174,13 +175,12 @@ The temporary SELinux domain lets Binder-dependent init commands run, and the
 `Operation not permitted` in the user namespace. The latest bounded run
 reached the 45-second timeout with `lmkd` fatal reboot suppression enabled.
 ART started and accepted zygote socket connections, but
-`sys.boot_completed=1` was not reached. PSI monitoring fails because guest
-`lmkd` is not the owner of the host PSI file; the temporary probe now maps
-only its UID/GID to host `nobody` and restores its normal Android service
-identity. This is an unverified, scoped diagnostic change. The temporary
-SELinux module is removed on exit. These settings diagnose boot in this
-environment; they are not a production security configuration or a complete
-boot fix.
+`sys.boot_completed=1` was not reached. PSI monitoring needs host-level
+`CAP_SYS_RESOURCE` for Android's 1-second monitor window; the user-namespace
+probe cannot provide it. SurfaceFlinger also crashes in this headless setup.
+The temporary SELinux module is removed on exit. These settings diagnose boot
+in this environment; they are not a production security configuration or a
+complete boot fix.
 
 Common output meanings:
 
