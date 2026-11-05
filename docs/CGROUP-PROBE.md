@@ -106,8 +106,12 @@ Read-only `debugfs` inspection of the selected images found:
   optional `memory`, plus a v2 freezer at `/sys/fs/cgroup`.
 - `/system/etc/task_profiles/cgroups_28.json` adds non-optional v1
   `schedtune` at `/dev/stune`.
-- `/system/etc/task_profiles/task_profiles_28.json` replaces several CPU
-  performance profiles with `schedtune` actions.
+- `/system/etc/task_profiles/task_profiles_28.json` replaces
+  `HighEnergySaving`, `NormalPerformance`, `ServicePerformance`,
+  `HighPerformance`, `MaxPerformance`, `RealtimePerformance`,
+  `CameraServicePerformance`, `NNApiHALPerformance` and `Dex2oatPerformance`
+  with `schedtune` cgroup joins. It also redirects `CpuPolicySpread` and
+  `CpuPolicyPack` to `schedtune.prefer_idle`.
 - The selected vendor image has no `/etc/cgroups.json` or
   `/etc/task_profiles.json` override. Its `/android_guest.prop` contains only
   a comment, so it supplies no boot properties.

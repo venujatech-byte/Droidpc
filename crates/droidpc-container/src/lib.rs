@@ -65,7 +65,7 @@ fn verify_bytes(mut input: impl Read, spec: &ImageSpec) -> io::Result<()> {
     }
     let actual = format!("{:x}", hash.finalize());
     if actual != spec.sha256 {
-        return Err(invalid(&format!(
+        return Err(invalid(format!(
             "{} SHA-256 mismatch: expected {}, got {actual}",
             spec.name, spec.sha256
         )));
