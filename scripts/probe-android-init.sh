@@ -148,6 +148,23 @@ cat > "$tmp/read-dev.sh" <<'SH'
 /system/bin/ls -l /dev > /data/droidpc-devices
 /system/bin/ls -lZ /dev/dri > /data/droidpc-dri-devices 2>&1
 SH
+cat > "$tmp/read-drm.sh" <<'SH'
+#!/system/bin/sh
+{
+    id
+    found=
+    for node in /dev/dri/*; do
+        [ -c "$node" ] || continue
+        found=1
+        if (exec 3<>"$node"); then
+            echo "DRM_GRAPHICS_OPEN_OK=$node"
+        else
+            echo "DRM_GRAPHICS_OPEN_FAILED=$node"
+        fi
+    done
+    [ -n "$found" ] || echo DRM_GRAPHICS_NODES_MISSING
+} > /data/droidpc-drm-access 2>&1
+SH
 cat > "$tmp/read-binder.sh" <<'SH'
 #!/system/bin/sh
 {
@@ -253,6 +270,9 @@ printf '%s\n' \
     'on init' \
     '    write /data/droidpc-init-trigger PASS' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
+    '    write /data/droidpc-drm-access DRM_GRAPHICS_CHECK_NOT_RUN' \
+    '    chown system graphics /data/droidpc-drm-access' \
+    '    exec - system graphics -- /system/bin/sh /tmp/droidpc-read-drm.sh' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-read-final-state.sh' \
@@ -333,6 +353,7 @@ fi
 set -- "$@" \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
+        --ro-bind "$tmp/read-drm.sh" /tmp/droidpc-read-drm.sh \
         --ro-bind "$tmp/read-binder.sh" /tmp/droidpc-read-binder.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
         --ro-bind "$tmp/read-final-state.sh" /tmp/droidpc-read-final-state.sh \
@@ -408,6 +429,10 @@ if [ -f "$tmp/data/droidpc-devices" ]; then
     if [ -f "$tmp/data/droidpc-dri-devices" ]; then
         echo "--- Guest DRM devices ---"
         cat "$tmp/data/droidpc-dri-devices"
+    fi
+    if [ -f "$tmp/data/droidpc-drm-access" ]; then
+        echo "--- Android graphics user DRM access ---"
+        cat "$tmp/data/droidpc-drm-access"
     fi
 else
     echo "GUEST_DEVICE_LIST_MISSING"
