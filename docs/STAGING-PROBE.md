@@ -234,10 +234,14 @@ failure remain unresolved. Do not infer that the wider map alone fixes the
 `setgroups` restriction; verify both mappings and setgroups behavior in a
 disposable namespace before running init again.
 
-The focused `sudo ./scripts/probe-android-userns.sh` check passed directly
-inside Bubblewrap and a temporary user namespace: UID 1000, GID 1000 and
-`setgroups` all worked. The probe exposed only read-only `/usr` and `/lib64`.
-It changed no host mappings or files. The mapped init retry is below.
+The focused `sudo ./scripts/probe-android-userns.sh` check previously passed
+directly inside Bubblewrap and a temporary user namespace with UID 1000, GID
+1000 and `setgroups`. It exposed only read-only `/usr` and `/lib64` and changed
+no host mappings or files. The probe now tests a different map: the invoking
+host UID/GID map to the same guest IDs for the Wayland `host` account, while
+all other guest IDs use subordinate ranges. It asserts the exact maps and
+`setgroups` result; this revised map needs a fresh host run before it is
+verified. The check still does not exercise an idmapped Android image mount.
 
 Android init and the container are still not running.
 
