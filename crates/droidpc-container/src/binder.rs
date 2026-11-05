@@ -4,6 +4,7 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 const BINDERFS_MAX_NAME: usize = 255;
 const MOUNT_FLAGS: libc::c_ulong = libc::MS_NOSUID as libc::c_ulong;
@@ -45,6 +46,7 @@ pub struct BinderFs {
     mountpoint: Option<PathBuf>,
     target: CString,
     control: Option<OwnedFd>,
+    _thread_bound: std::marker::PhantomData<Rc<()>>,
 }
 
 impl BinderFs {
@@ -118,6 +120,7 @@ impl BinderFs {
             mountpoint: Some(mountpoint),
             target,
             control: Some(control),
+            _thread_bound: std::marker::PhantomData,
         };
         for name in ["binder", "hwbinder", "vndbinder"] {
             if let Err(error) = binder_fs.add_device(name) {
