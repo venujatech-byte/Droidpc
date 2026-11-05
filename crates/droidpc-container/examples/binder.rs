@@ -59,8 +59,26 @@ fn main() -> io::Result<()> {
             "usage: binder (requires root)",
         ));
     }
-    let root = PathBuf::from(format!("/tmp/droidpc-binder-{}", process::id()));
-    fs::DirBuilder::new().mode(0o700).create(&root)?;
+    let root = (0..1000)
+        .find_map(|attempt| {
+            let path = PathBuf::from(format!(
+                "/tmp/droidpc-binder-{}-{attempt}",
+                process::id()
+            ));
+            match fs::DirBuilder::new().mode(0o700).create(&path) {
+                Ok(()) => Some(Ok(path)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    None
+                }
+                Err(error) => Some(Err(error)),
+            }
+        })
+        .unwrap_or_else(|| {
+            Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                "no unused BinderFS temp directory",
+            ))
+        })?;
     let mountpoint = root.join("binderfs");
     let mut result = run(&mountpoint);
     record(&mut result, fs::remove_dir(&root));

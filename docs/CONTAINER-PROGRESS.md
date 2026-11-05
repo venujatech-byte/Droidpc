@@ -91,7 +91,7 @@ sudo ./target/debug/examples/stage "$PWD/os_images/selected"
 
 Success prints `System/vendor staged read-only, cleaned up, hashes unchanged`.
 An error is not a passing staging gate. The example uses a new private
-`/tmp/droidpc-stage-<pid>` directory and does not start Android or touch
+`/tmp/droidpc-stage-<pid>-<attempt>` directory and does not start Android or touch
 persistent guest data. It attempts normal cleanup and rolls back the system
 mount if vendor setup fails; injected failures after successful mounts and concurrent loop
 allocation still need runtime coverage.
@@ -102,6 +102,9 @@ After staging passes, run the BinderFS check in a disposable namespace:
 cargo build -p droidpc-container --example binder
 sudo ./target/debug/examples/binder
 ```
+
+The BinderFS example uses `/tmp/droidpc-binder-<pid>-<attempt>` so stale
+directories from a reused process ID do not block later runs.
 
 Success prints a `PASS` line for each private device and confirms cleanup. The
 example does not replace the host Binder devices or start Android.

@@ -24,8 +24,9 @@ Both paths are relative to the repository root:
   `os_images/lineage-20.0-20260927-MAINLINE-x86_64-vendor/`
 
 Each contains its corresponding `.img` file. The ignored directory
-`os_images/selected/` contains relative symlinks to these two files. Images
-were not moved, modified or duplicated. Run:
+`os_images/selected/` contains relative symlinks to read-only copies under
+`os_images/verified-20260927/`. The original extracted images remain untouched.
+Run:
 
 ```sh
 cargo run -p droidpc-cli -- doctor --images os_images/selected
@@ -39,9 +40,11 @@ this container's system/vendor pair. Do not combine it with these images.
 
 The original ZIP files were found in the user's Downloads directory.
 Their SHA-256 hashes match the respective `id` fields of the release entries
-in the upstream OTA manifests. The streamed, decompressed image hashes also
-match the local images under `os_images/`. This verifies correspondence to
-the fetched release metadata, not the security or bootability of the guest.
+in the upstream OTA manifests. The streamed, decompressed image hashes match
+the read-only selected copies. The prior selected files differed from the
+archive contents in 9 system and 1 vendor 1 MiB blocks; those originals remain
+preserved in their source directories. This verifies correspondence to the
+fetched release metadata, not the security or bootability of the guest.
 
 [System manifest][system] and [vendor manifest][vendor] were checked for the
 20260927 release. Recorded archive hashes:
@@ -139,7 +142,7 @@ selected image. No container crate or privileged boot code was added here.
 ## Validation performed
 
 - Ignore rules cover all of `os_images/`; no images are tracked by Git.
-- Local SHA-256 hashes match streamed image contents in the original ZIPs.
+- Selected SHA-256 hashes match streamed image contents in the original ZIPs.
 - Archive hashes match the fetched upstream release IDs.
 - Doctor outside the development sandbox reports 0 problems and 6 warnings
   for `os_images/selected`, including successful GPU device access.

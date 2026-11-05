@@ -32,8 +32,8 @@ pub const VENDOR: ImageSpec = ImageSpec {
     ),
 };
 
-fn invalid(message: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, message)
+fn invalid(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
 fn verify_bytes(mut input: impl Read, spec: &ImageSpec) -> io::Result<()> {
@@ -63,8 +63,12 @@ fn verify_bytes(mut input: impl Read, spec: &ImageSpec) -> io::Result<()> {
     if count != spec.size {
         return Err(invalid("image size mismatch"));
     }
-    if format!("{:x}", hash.finalize()) != spec.sha256 {
-        return Err(invalid("image SHA-256 mismatch"));
+    let actual = format!("{:x}", hash.finalize());
+    if actual != spec.sha256 {
+        return Err(invalid(&format!(
+            "{} SHA-256 mismatch: expected {}, got {actual}",
+            spec.name, spec.sha256
+        )));
     }
     Ok(())
 }
