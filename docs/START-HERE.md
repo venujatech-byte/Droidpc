@@ -176,7 +176,9 @@ initial boot/service snapshot immediately, then records another after waiting
 up to 90 seconds for boot completion. This preserves framework evidence if
 the outer 180-second timeout stops the run. It checks
 ActivityManager and package services without dumping unbounded SystemServer
-stacks.
+stacks. If boot remains incomplete and SystemServer is running, it captures a
+backtrace with Android's `debuggerd -b`; the host output is capped at 160
+lines.
 
 The host DRM node maps to `card1`; the probe passes that card and a private
 sysfs discovery snapshot alongside `renderD128`. The guest SELinux policy is

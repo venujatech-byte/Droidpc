@@ -220,8 +220,8 @@ capture_state() {
         getprop "$property"
     done
     echo '--- SystemServer process ---'
-    server_pid=$(pidof system_server)
-    ps -A | grep system_server
+    server_pid=$(pidof system_server || true)
+    ps -A | grep system_server || true
     echo '--- Framework service checks ---'
     /system/bin/service check activity 2>&1 || true
     /system/bin/service check package 2>&1 || true
@@ -253,6 +253,19 @@ while [ "$attempt" -lt 18 ]; do
     sleep 5
     attempt=$((attempt + 1))
 done
+server_pid=$(pidof system_server || true)
+if [ "$(getprop sys.boot_completed)" != 1 ] && [ -n "$server_pid" ]; then
+    if [ -x /system/bin/debuggerd ]; then
+        if ! /system/bin/debuggerd -b "$server_pid" \
+            > /data/droidpc-system-server-backtrace 2>&1; then
+            echo 'debuggerd backtrace command failed' \
+                >> /data/droidpc-system-server-backtrace
+        fi
+    else
+        echo 'debuggerd is unavailable' \
+            > /data/droidpc-system-server-backtrace
+    fi
+fi
 capture_state Final
 SH
 printf '%s\n' \
@@ -524,6 +537,10 @@ if [ -f "$tmp/data/droidpc-final-state" ]; then
     cat "$tmp/data/droidpc-final-state"
 else
     echo "GUEST_FINAL_STATE_UNAVAILABLE"
+fi
+if [ -f "$tmp/data/droidpc-system-server-backtrace" ]; then
+    echo "--- Bounded SystemServer backtrace (first 160 lines) ---"
+    sed -n '1,160p' "$tmp/data/droidpc-system-server-backtrace"
 fi
 if [ -s "$tmp/data/droidpc-charger-trigger" ]; then
     echo "CHARGER_TRIGGERED"
