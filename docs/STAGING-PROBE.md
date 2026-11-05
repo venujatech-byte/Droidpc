@@ -331,6 +331,59 @@ The run still ended at the 45-second probe timeout before
 The next bounded run is extended to 120 seconds and captures the additional
 `LowMemDetector`, `SurfaceFlinger`, and crash tags.
 
+The 120-second host-capability run started `system_server` but did not complete
+boot. SurfaceFlinger reported that `ro.sf.lcd_density` was missing and then
+crashed in `SkiaGLRenderEngine::create`. The probe now adds the conventional
+density value (`160`) to a temporary `/system/build.prop` overlay and includes
+DEBUG crash frames in its log summary; source images remain unchanged.
+
+The next run no longer logged the missing-density error, confirming the
+overlay was read. SurfaceFlinger still crashed: the backtrace ends in the
+vendor `/vendor/lib64/egl/libGLESv2_angle.so` at
+`egl::Thread::getContext()` after a null pointer dereference. The vendor
+`hwcomposer.android_guest.so` service repeatedly exits with status 1. The vendor
+image is Android API 33 and includes
+`vulkan.pastel.so`; its init property handling maps
+`ro.hardware.egl=swiftshader` to ANGLE plus the Pastel software Vulkan driver.
+The run confirms those effective properties (`angle`, `default`, `pastel`),
+and no SurfaceFlinger SIGSEGV appears in the captured log. The composer still
+exits before registering its HIDL service. Its Android guest HWC library connects
+to a Wayland compositor. The probe exposes the host socket in the guest and
+captures composer, EGL, Vulkan and Wayland errors. One run reported
+`HOST_WAYLAND_SOCKET_MISSING`; socket detection now searches
+`/run/user/<invoking-uid>/wayland-*` when the requested display socket is
+absent. The latest run mounted the socket, but the HWC still could not connect:
+its log shows `XDG_RUNTIME_DIR=/run/user/1000` while the socket was mounted
+under `/tmp`. The probe now mounts it at the guest's `/run/user/<uid>` path
+used by HWC. The following run exited before init because Bubblewrap could not
+create `/run/user` in the read-only image. The probe now stages `/run/user`
+under its temporary directory and bind-mounts that tree over `/run`. Re-run to
+see whether the composer registers. A follow-up attempt exposed that the
+Wayland branch had omitted the `/tmp` tmpfs used by probe helpers; that tmpfs is
+now present in both branches. Boot remains incomplete until SurfaceFlinger and
+the composer stay running.
+
+The latest run confirms the socket path fix: HWC no longer logs a Wayland
+connection failure, SurfaceFlinger connects to the composer, and the display
+hotplug event is delivered. SurfaceFlinger then aborts with `output buffer not
+gpu writeable`. The log also shows SwiftShader rejecting an
+`AHardwareBuffer` format and `gralloc.default` failing ashmem allocations.
+Android guest sets `sys.use_memfd=true` when `/dev/ashmem`
+is absent, but the probe had not done that. It now sets the property at
+`early-init` and reports its effective value; rerun to see whether that resolves
+the allocation failures and SurfaceFlinger abort. Android boot remains
+incomplete. The host's existing Android guest config expects
+`/dev/dri/renderD128` with Mesa/GBM, but the Droidpc probe hid host devices
+and forced software rendering. The probe now binds that node and
+selects Mesa/GBM when it exists, retaining SwiftShader/Pastel as the fallback.
+
+The next run confirms `sys.use_memfd=true`. SystemServer progressed through
+`StartDropBoxManager` but repeatedly dumped stacks about every 45 seconds; the
+final snapshot showed zygote, SurfaceFlinger and boot animation still running,
+with `sys.boot_completed` empty. The shown logcat excerpt does not include the
+earlier SurfaceFlinger abort. The probe now captures the SystemServer process
+and the latest ANR trace at 110 seconds to identify the startup stall.
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.

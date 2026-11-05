@@ -177,6 +177,31 @@ daily runtime. It has been run once. `system_server` started, with no `lmkd`
 restart reported, but the 45-second run ended before boot completion.
 `system_server` logged PSI trigger `EINVAL`, and SurfaceFlinger crashed. The
 probe now allows 120 seconds and includes those tags in the log summary.
+The probe supplies `ro.sf.lcd_density=160` through a temporary build-property
+overlay. The latest run confirms that property is read, but SurfaceFlinger
+still crashes in vendor ANGLE (`libGLESv2_angle.so`) after a null EGL context;
+the Android guest composer service also exits. The probe now selects the Android 13
+ANGLE plus Pastel software-rendering path and reports the effective graphics
+properties. This host has no `/dev/dri` device, so the probe now exposes the
+active Wayland session socket to the Android guest composer and captures its errors.
+One run reported `HOST_WAYLAND_SOCKET_MISSING`; detection now falls back to a
+socket under `/run/user/<invoking-uid>`. The latest run mounted it, but HWC
+looked under `/run/user/1000` while the socket was under `/tmp`. The probe now
+mounts it at HWC's runtime path using a staged `/run` tree. The next run exited
+before init because Bubblewrap could not create `/run/user` in the read-only
+image. Re-run to check whether the staged mount lets composer register.
+The next attempt stopped before init because that branch omitted the `/tmp`
+tmpfs used by probe helpers; the probe now mounts it in both branches.
+The previous run confirmed HWC connects and SurfaceFlinger receives a display
+hotplug event, then aborts with `output buffer not gpu writeable`; SwiftShader
+rejects an AHardwareBuffer format and `gralloc.default` reports ashmem
+allocation failures. The latest run confirms `sys.use_memfd=true` and shows
+SystemServer progressing into `StartDropBoxManager`, then repeated ActivityManager
+stack dumps about every 45 seconds. At 110 seconds, zygote, SurfaceFlinger and
+boot animation were still running, while `sys.boot_completed` remained empty.
+The host's Android guest config and earlier startup log show a Mesa/GBM render-node
+path; the probe now passes that node through when present. It also captures
+the SystemServer process and latest ANR trace at 110 seconds.
 
 The plain probe process uses the host's `unconfined_t` SELinux domain;
 Android's SELinux policy is not loaded into the shared host kernel. Init also
@@ -204,7 +229,7 @@ Common output meanings:
 | --- | --- |
 | `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
 | `INIT_TRIGGER_MISSING` | Init did not reach `on init`; inspect ueventd and coldboot logs. |
-| `INIT_PROBE_STATUS=124` | The 45 second timer stopped the probe as designed. |
+| `INIT_PROBE_STATUS=124` | The 120 second timer stopped the probe as designed. |
 | `INIT_PROBE_STATUS=129` | Init exited during fatal shutdown; inspect the critical service failures in the log. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
 | `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |

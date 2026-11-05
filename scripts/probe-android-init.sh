@@ -26,6 +26,31 @@ root=$(pwd -P)
 system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
+render_node=
+if [ -c /dev/dri/renderD128 ]; then
+    render_node=$(realpath /dev/dri/renderD128)
+fi
+wayland_display=${WAYLAND_DISPLAY:-wayland-0}
+wayland_socket=
+guest_runtime_dir=/run/user/$(id -u "$SUDO_USER")
+guest_runtime_path=${guest_runtime_dir#/run/}
+case "$wayland_display" in
+    ''|*/*) ;;
+    *)
+        runtime_dir=/run/user/$(id -u "$SUDO_USER")
+        if [ -S "$runtime_dir/$wayland_display" ]; then
+            wayland_socket=$runtime_dir/$wayland_display
+        else
+            for candidate in "$runtime_dir"/wayland-*; do
+                if [ -S "$candidate" ]; then
+                    wayland_socket=$candidate
+                    wayland_display=${candidate##*/}
+                    break
+                fi
+            done
+        fi
+        ;;
+esac
 
 cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
@@ -36,6 +61,11 @@ trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
+if [ -n "$wayland_socket" ]; then
+    mkdir -p "$tmp/run/$guest_runtime_path"
+    touch "$tmp/run/$guest_runtime_path/$wayland_display"
+    chmod 0755 "$tmp/run" "$tmp/run/user" "$tmp/run/$guest_runtime_path"
+fi
 touch "$tmp/kmsg"
 debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
     | sed 's/^uevent_socket_rcvbuf_size 16M$/uevent_socket_rcvbuf_size 256K/' \
@@ -99,10 +129,35 @@ cat > "$tmp/read-profile.sh" <<'SH'
 cat /proc/1/cgroup > /data/droidpc-profile-cgroup
 getprop ro.bootmode > /data/droidpc-bootmode
 getprop ro.crypto.state > /data/droidpc-crypto-state
+getprop ro.sf.lcd_density > /data/droidpc-lcd-density
+getprop ro.hardware.egl > /data/droidpc-hardware-egl
+getprop ro.hardware.gralloc > /data/droidpc-hardware-gralloc
+getprop ro.hardware.vulkan > /data/droidpc-hardware-vulkan
+getprop sys.use_memfd > /data/droidpc-use-memfd
+SH
+cat > "$tmp/read-final-state.sh" <<'SH'
+#!/system/bin/sh
+sleep 110
+{
+    for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote init.svc.bootanim; do
+        printf '%s=' "$property"
+        getprop "$property"
+    done
+    echo '--- SystemServer process ---'
+    ps -A | grep system_server
+    anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
+    if [ -n "$anr" ]; then
+        echo "--- Latest ANR trace: $anr ---"
+        head -n 160 "$anr"
+    else
+        echo 'LATEST_ANR_TRACE_MISSING'
+    fi
+} > /data/droidpc-final-state
 SH
 printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
+    '    setprop sys.use_memfd true' \
     '    setprop init.svc_debug.no_fatal.lmkd true' \
     '    copy /proc/1/mounts /data/droidpc-mounts' \
     '    mkdir /dev/binderfs 0755 root root' \
@@ -120,6 +175,7 @@ printf '%s\n' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
+    '    exec_background -- /system/bin/sh /tmp/droidpc-read-final-state.sh' \
     'on property:init.svc.logd=running' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-capture-logcat.sh' \
     'on charger' \
@@ -137,6 +193,24 @@ if ! grep -q '^on late-init$' "$tmp/init.rc"; then
     exit 1
 fi
 cat "$tmp/probe.rc" >> "$tmp/init.rc"
+debugfs -R 'cat /system/build.prop' "$system" 2>/dev/null \
+    > "$tmp/system-build.prop"
+if ! grep -q '^ro.sf.lcd_density=' "$tmp/system-build.prop"; then
+    printf '%s\n' 'ro.sf.lcd_density=160' >> "$tmp/system-build.prop"
+fi
+sed -i '/^ro.hardware.egl=/d; /^ro.hardware.gralloc=/d; /^ro.hardware.vulkan=/d' \
+    "$tmp/system-build.prop"
+if [ -n "$render_node" ]; then
+    printf '%s\n' \
+        'ro.hardware.egl=mesa' \
+        'ro.hardware.gralloc=gbm' \
+        'ro.hardware.vulkan=intel' >> "$tmp/system-build.prop"
+else
+    printf '%s\n' \
+        'ro.hardware.egl=swiftshader' \
+        'ro.hardware.gralloc=default' \
+        'ro.hardware.vulkan=pastel' >> "$tmp/system-build.prop"
+fi
 printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
@@ -158,17 +232,29 @@ fi
 set -- "$@" \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/init.rc" /system/etc/init/hw/init.rc \
+        --ro-bind "$tmp/system-build.prop" /system/build.prop \
         --ro-bind "$tmp/lmkd.rc" /system/etc/init/lmkd.rc \
         --ro-bind "$tmp/zygote.rc" /system/etc/init/hw/init.zygote64_32.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
         --proc /proc --dev /dev \
-        --dir /dev/socket \
-        --tmpfs /tmp \
+        --dir /dev/socket --tmpfs /tmp
+if [ -n "$render_node" ]; then
+    set -- "$@" --dir /dev/dri \
+        --dev-bind "$render_node" /dev/dri/renderD128
+fi
+if [ -n "$wayland_socket" ]; then
+    set -- "$@" \
+        --bind "$tmp/run" /run \
+        --ro-bind "$wayland_socket" "$guest_runtime_dir/$wayland_display" \
+        --setenv WAYLAND_DISPLAY "$wayland_display"
+fi
+set -- "$@" \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
         --ro-bind "$tmp/read-dev.sh" /tmp/droidpc-read-dev.sh \
         --ro-bind "$tmp/read-binder.sh" /tmp/droidpc-read-binder.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
+        --ro-bind "$tmp/read-final-state.sh" /tmp/droidpc-read-final-state.sh \
         --ro-bind "$tmp/capture-logcat.sh" /tmp/droidpc-capture-logcat.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
@@ -176,9 +262,8 @@ set -- "$@" \
         --bind "$tmp/kmsg" /dev/kmsg \
         --bind "$tmp/data" /data --tmpfs /mnt \
         --tmpfs /apex \
-        --tmpfs /linkerconfig \
-        --chdir / \
-        /system/bin/init second_stage
+        --tmpfs /linkerconfig
+set -- "$@" --chdir / /system/bin/init second_stage
 if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" = 1 ]; then
     echo "WARNING: Android init has host-level capabilities inside private namespaces."
 else
@@ -194,6 +279,16 @@ fi
 timeout --signal=TERM --kill-after=2s 120s "$@" || status=$?
 
 echo "INIT_PROBE_STATUS=$status"
+if [ -n "$render_node" ]; then
+    echo "HOST_RENDER_NODE_AVAILABLE"
+else
+    echo "HOST_RENDER_NODE_MISSING"
+fi
+if [ -n "$wayland_socket" ]; then
+    echo "HOST_WAYLAND_SOCKET_MOUNTED"
+else
+    echo "HOST_WAYLAND_SOCKET_MISSING"
+fi
 if [ -s "$tmp/data/droidpc-early-init" ]; then
     echo "INIT_EARLY_INIT_OK"
 else
@@ -260,6 +355,21 @@ for name in bootmode crypto-state; do
         echo "UNAVAILABLE"
     fi
 done
+for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan use-memfd; do
+    label=$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')
+    printf 'GUEST_%s=' "$label"
+    if [ -f "$tmp/data/droidpc-$name" ]; then
+        cat "$tmp/data/droidpc-$name"
+    else
+        echo "UNAVAILABLE"
+    fi
+done
+if [ -f "$tmp/data/droidpc-final-state" ]; then
+    echo "--- Guest final boot/service state ---"
+    cat "$tmp/data/droidpc-final-state"
+else
+    echo "GUEST_FINAL_STATE_UNAVAILABLE"
+fi
 if [ -s "$tmp/data/droidpc-charger-trigger" ]; then
     echo "CHARGER_TRIGGERED"
 else
@@ -281,7 +391,7 @@ echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
 if [ -f "$tmp/data/droidpc-logcat" ]; then
     echo "--- Android logcat failures ---"
-    grep -E -i 'lmkd|lowmemorykiller|lowmemdetector|psi|memory pressure|bpfloader|zygote|system_server|systemserver|SystemServer|ActivityManager|AndroidRuntime|surfaceflinger|incidentd|fatal|crash|boot_completed' \
+    grep -E -i 'lmkd|lowmemorykiller|lowmemdetector|psi|memory pressure|bpfloader|zygote|system_server|systemserver|SystemServer|ActivityManager|AndroidRuntime|surfaceflinger|incidentd|fatal|crash|boot_completed|DEBUG|signal 11|hwcomposer|composer|gralloc|angle|egl|vulkan|wayland|wl_display' \
         "$tmp/data/droidpc-logcat" | tail -n 180 || true
 else
     echo "ANDROID_LOGCAT_MISSING"
