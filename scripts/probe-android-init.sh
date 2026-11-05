@@ -27,7 +27,6 @@ system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 render_node=
-drm_card=
 drm_card_name=
 if [ -c /dev/dri/renderD128 ]; then
     render_node=$(realpath /dev/dri/renderD128)
@@ -37,7 +36,6 @@ if [ -c /dev/dri/renderD128 ]; then
         candidate_name=${candidate##*/}
         candidate_device=$(readlink -f "/sys/class/drm/$candidate_name/device" 2>/dev/null || true)
         if [ -n "$render_device" ] && [ "$candidate_device" = "$render_device" ]; then
-            drm_card=$(realpath "$candidate")
             drm_card_name=$candidate_name
             break
         fi
@@ -68,12 +66,44 @@ esac
 cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
+    umount "$tmp/dri" 2>/dev/null || true
     rm -rf -- "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
+if [ -n "$render_node" ]; then
+    mkdir "$tmp/dri"
+    mount -t tmpfs -o mode=0755 tmpfs "$tmp/dri"
+    prepare_drm_node() {
+        node_name=$1
+        device_numbers=$(cat "/sys/class/drm/$node_name/dev")
+        node_major=${device_numbers%%:*}
+        node_minor=${device_numbers#*:}
+        case "$node_major" in
+            ''|*[!0-9]*) return 1 ;;
+        esac
+        case "$node_minor" in
+            ''|*[!0-9]*) return 1 ;;
+        esac
+        node_path=$tmp/dri/$node_name
+        mknod "$node_path" c "$node_major" "$node_minor"
+        # Android's AID_GRAPHICS is 1003; keep ownership private to the guest.
+        chown 0:1003 "$node_path"
+        chmod 0660 "$node_path"
+        expected_device=$(printf '%x:%x' "$node_major" "$node_minor")
+        if [ "$(stat -c '%t:%T' "$node_path")" != "$expected_device" ] \
+            || [ "$(stat -c '%u:%g:%a' "$node_path")" != '0:1003:660' ]; then
+            echo "Invalid staged DRM node: $node_name" >&2
+            return 1
+        fi
+    }
+    prepare_drm_node renderD128
+    if [ -n "$drm_card_name" ]; then
+        prepare_drm_node "$drm_card_name"
+    fi
+fi
 if [ -n "$wayland_socket" ]; then
     mkdir -p "$tmp/run/$guest_runtime_path"
     touch "$tmp/run/$guest_runtime_path/$wayland_display"
@@ -116,6 +146,7 @@ SH
 cat > "$tmp/read-dev.sh" <<'SH'
 #!/system/bin/sh
 /system/bin/ls -l /dev > /data/droidpc-devices
+/system/bin/ls -lZ /dev/dri > /data/droidpc-dri-devices 2>&1
 SH
 cat > "$tmp/read-binder.sh" <<'SH'
 #!/system/bin/sh
@@ -291,11 +322,7 @@ set -- "$@" \
         --proc /proc --dev /dev \
         --dir /dev/socket --tmpfs /tmp
 if [ -n "$render_node" ]; then
-    set -- "$@" --dir /dev/dri \
-        --dev-bind "$render_node" /dev/dri/renderD128
-    if [ -n "$drm_card" ]; then
-        set -- "$@" --dev-bind "$drm_card" "/dev/dri/$drm_card_name"
-    fi
+    set -- "$@" --dir /dev/dri --ro-bind "$tmp/dri" /dev/dri
 fi
 if [ -n "$wayland_socket" ]; then
     set -- "$@" \
@@ -338,7 +365,7 @@ if [ -n "$render_node" ]; then
 else
     echo "HOST_RENDER_NODE_MISSING"
 fi
-if [ -n "$drm_card" ]; then
+if [ -n "$drm_card_name" ]; then
     echo "HOST_DRM_CARD_AVAILABLE"
     echo "HOST_DRM_CARD=$drm_card_name"
 else
@@ -378,6 +405,10 @@ done
 if [ -f "$tmp/data/droidpc-devices" ]; then
     echo "--- Guest /dev entries ---"
     cat "$tmp/data/droidpc-devices"
+    if [ -f "$tmp/data/droidpc-dri-devices" ]; then
+        echo "--- Guest DRM devices ---"
+        cat "$tmp/data/droidpc-dri-devices"
+    fi
 else
     echo "GUEST_DEVICE_LIST_MISSING"
 fi

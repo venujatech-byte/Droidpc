@@ -15,14 +15,19 @@
 - The latest supplied run selects Mesa/GBM, but Mesa says it cannot open a DRM
   device. SurfaceFlinger then aborts in `validateOutputBufferUsage` with
   `output buffer not gpu writeable`; it restarts until the probe timeout. The
-  probe passed `/dev/dri/renderD128` but not its matching primary DRM card, so
-  it now identifies the card through sysfs and passes it when present. The
-  current host inventory maps this render node to `card1`, not `card0`. This
-  change is not runtime-verified.
+  probe exposed `/dev/dri/renderD128` without its matching primary DRM card,
+  and host node ownership may block Android's `graphics` group. It now matches
+  the card through sysfs and creates private tmpfs device nodes owned by
+  Android's `graphics` group without changing host node permissions. The
+  current host inventory maps the render node to `card1`, not `card0`. This is
+  not runtime-verified.
 - The vendor allocator init rule only starts
   `vendor.graphics.allocator-4-0` when `ro.hardware.gralloc=minigbm_gbm_mesa`.
   The probe used `gbm`, so it now sets the exact image value and reports
   allocator/composer service state in the final snapshot.
+- DRM device nodes now live in a private tmpfs with mode `0660` and Android's
+  graphics group for the vendor allocator/HWC. Host node ownership and
+  permissions remain unchanged; runtime access is not yet verified.
 - The probe also supplies the vendor image's `android_guest.stub_sensors_hal=1`
   property and captures the first SystemServer ANR, but the latest supplied
   run did not include a value for the stub property and produced no ANR trace.
