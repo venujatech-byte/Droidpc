@@ -26,8 +26,9 @@
   read-only loop mounts in a private mount namespace.
 - `binder::BinderFs` now owns a private BinderFS mount, allocates the guest's
   three Binder devices, and explicitly unmounts on cleanup. Its Rust ABI
-  layout is unit tested; kernel mount/allocation/cleanup are not yet tested
-  through this implementation.
+  layout is unit tested. The `binder` example now checks each device is a
+  character device, opens it read/write, and explicitly cleans up; kernel
+  mount/allocation/cleanup through this implementation still need a host run.
 - Android init probes reached framework startup but did not establish
   `sys.boot_completed=1`. There is still no production start/stop lifecycle.
 - Earlier runs showed EGL `EACCES` and SurfaceFlinger buffer failures. The
@@ -94,6 +95,16 @@ An error is not a passing staging gate. The example uses a new private
 persistent guest data. It attempts normal cleanup and rolls back the system
 mount if vendor setup fails; injected failures after successful mounts and concurrent loop
 allocation still need runtime coverage.
+
+After staging passes, run the BinderFS check in a disposable namespace:
+
+```sh
+cargo build -p droidpc-container --example binder
+sudo ./target/debug/examples/binder
+```
+
+Success prints a `PASS` line for each private device and confirms cleanup. The
+example does not replace the host Binder devices or start Android.
 
 Sandboxed execution has no `/dev/loop-control` or `/dev/dri`, no effective
 capabilities, and `NoNewPrivs=1`. Execution outside the sandbox does reach the
