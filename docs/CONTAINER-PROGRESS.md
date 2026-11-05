@@ -15,8 +15,10 @@
 - The latest supplied run selects Mesa/GBM, but Mesa says it cannot open a DRM
   device. SurfaceFlinger then aborts in `validateOutputBufferUsage` with
   `output buffer not gpu writeable`; it restarts until the probe timeout. The
-  probe passed `/dev/dri/renderD128` but not the primary `/dev/dri/card0` node,
-  so it now passes that node when present. This change is not runtime-verified.
+  probe passed `/dev/dri/renderD128` but not its matching primary DRM card, so
+  it now identifies the card through sysfs and passes it when present. The
+  current host inventory maps this render node to `card1`, not `card0`. This
+  change is not runtime-verified.
 - The probe also supplies the vendor image's `android_guest.stub_sensors_hal=1`
   property and captures the first SystemServer ANR, but the latest supplied
   run did not include a value for the stub property and produced no ANR trace.

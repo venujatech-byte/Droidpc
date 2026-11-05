@@ -28,11 +28,20 @@ vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 render_node=
 drm_card=
+drm_card_name=
 if [ -c /dev/dri/renderD128 ]; then
     render_node=$(realpath /dev/dri/renderD128)
-fi
-if [ -c /dev/dri/card0 ]; then
-    drm_card=$(realpath /dev/dri/card0)
+    render_device=$(readlink -f /sys/class/drm/renderD128/device 2>/dev/null || true)
+    for candidate in /dev/dri/card*; do
+        [ -c "$candidate" ] || continue
+        candidate_name=${candidate##*/}
+        candidate_device=$(readlink -f "/sys/class/drm/$candidate_name/device" 2>/dev/null || true)
+        if [ -n "$render_device" ] && [ "$candidate_device" = "$render_device" ]; then
+            drm_card=$(realpath "$candidate")
+            drm_card_name=$candidate_name
+            break
+        fi
+    done
 fi
 wayland_display=${WAYLAND_DISPLAY:-wayland-0}
 wayland_socket=
@@ -283,7 +292,7 @@ if [ -n "$render_node" ]; then
     set -- "$@" --dir /dev/dri \
         --dev-bind "$render_node" /dev/dri/renderD128
     if [ -n "$drm_card" ]; then
-        set -- "$@" --dev-bind "$drm_card" /dev/dri/card0
+        set -- "$@" --dev-bind "$drm_card" "/dev/dri/$drm_card_name"
     fi
 fi
 if [ -n "$wayland_socket" ]; then
@@ -329,6 +338,7 @@ else
 fi
 if [ -n "$drm_card" ]; then
     echo "HOST_DRM_CARD_AVAILABLE"
+    echo "HOST_DRM_CARD=$drm_card_name"
 else
     echo "HOST_DRM_CARD_MISSING"
 fi
