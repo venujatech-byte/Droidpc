@@ -209,22 +209,9 @@ cat > "$tmp/read-final-state.sh" <<'SH'
 report=/data/droidpc-final-state
 echo 'BOOT_DIAGNOSTIC_STARTED' > "$report"
 anr_captured=
-attempt=0
-while [ "$attempt" -lt 18 ]; do
-    boot_completed=$(getprop sys.boot_completed)
-    if [ -z "$anr_captured" ]; then
-        anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
-        if [ -n "$anr" ]; then
-            echo "LATEST_ANR_TRACE=$anr" >> "$report"
-            anr_captured=1
-        fi
-    fi
-    [ "$boot_completed" = 1 ] && break
-    sleep 5
-    attempt=$((attempt + 1))
-done
+capture_state() {
 {
-    echo '--- Final boot/service state ---'
+    echo "--- $1 boot/service snapshot ---"
     for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote \
         init.svc.bootanim init.svc.vendor.audio-hal \
         init.svc.vendor.audio-hal-2-0 init.svc.vendor.graphics.allocator-4-0 \
@@ -250,6 +237,23 @@ done
         echo 'SYSTEM_SERVER_STACKS_UNAVAILABLE'
     fi
 } >> "$report"
+}
+capture_state Initial
+attempt=0
+while [ "$attempt" -lt 18 ]; do
+    boot_completed=$(getprop sys.boot_completed)
+    if [ -z "$anr_captured" ]; then
+        anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
+        if [ -n "$anr" ]; then
+            echo "LATEST_ANR_TRACE=$anr" >> "$report"
+            anr_captured=1
+        fi
+    fi
+    [ "$boot_completed" = 1 ] && break
+    sleep 5
+    attempt=$((attempt + 1))
+done
+capture_state Final
 SH
 printf '%s\n' \
     'on early-init' \

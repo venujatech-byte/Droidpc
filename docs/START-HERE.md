@@ -109,7 +109,7 @@ Android configuration also tried old cgroup v1 mounts; they failed on this
 host. `SetupCgroups` printed “succeeded” despite those failures, so that
 message is **not** proof that Android service groups work.
 
-The Android startup probe is bounded to 45 seconds. `INIT_PROBE_STATUS=124`
+The Android startup probe is bounded to 180 seconds. `INIT_PROBE_STATUS=124`
 means the wrapper stopped the run; `129` means init exited after a fatal
 shutdown. Neither status means Android completed boot. `INIT_EARLY_INIT_OK`
 only confirms that the custom early action ran. Linker warnings before
@@ -171,9 +171,12 @@ sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 The run repeatedly logs `incidentd` exits because it requests
 `CAP_SYS_PTRACE`, which this diagnostic intentionally drops. BPF setup also
 reports missing guest bpffs paths. These failures are recorded; they do not
-yet establish why `sys.boot_completed` stays empty. The probe's final snapshot
-now checks ActivityManager and package services before timeout and omits the
-unbounded SystemServer stack dump.
+yet establish why `sys.boot_completed` stays empty. The probe writes an
+initial boot/service snapshot immediately, then records another after waiting
+up to 90 seconds for boot completion. This preserves framework evidence if
+the outer 180-second timeout stops the run. It checks
+ActivityManager and package services without dumping unbounded SystemServer
+stacks.
 
 The host DRM node maps to `card1`; the probe passes that card and a private
 sysfs discovery snapshot alongside `renderD128`. The guest SELinux policy is
@@ -188,7 +191,7 @@ Common output meanings:
 | --- | --- |
 | `INIT_EARLY_INIT_MISSING` | Init stopped before the custom early action. Check the first Android error in the log. |
 | `INIT_TRIGGER_MISSING` | Init did not reach `on init`; inspect ueventd and coldboot logs. |
-| `INIT_PROBE_STATUS=124` | The 120 second timer stopped the probe as designed. |
+| `INIT_PROBE_STATUS=124` | The 180 second timer stopped the probe as designed. |
 | `INIT_PROBE_STATUS=129` | Init exited during fatal shutdown; inspect the critical service failures in the log. |
 | `INIT_PROBE_STATUS=0` | The command ended normally; this alone does not mean Android booted. |
 | `TASK_PROFILE_ACTION_FAILED` | Init reported failure applying `HighPerformance`; inspect the first related log line. |
