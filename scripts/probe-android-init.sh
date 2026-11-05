@@ -175,7 +175,9 @@ while [ "$attempt" -lt 22 ]; do
 done
 {
     echo '--- Final boot/service state ---'
-    for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote init.svc.bootanim; do
+    for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote \
+        init.svc.bootanim init.svc.vendor.graphics.allocator-4-0 \
+        init.svc.vendor.hwcomposer-2-1; do
         printf '%s=' "$property"
         getprop "$property"
     done
@@ -250,7 +252,7 @@ sed -i '/^ro.hardware.egl=/d; /^ro.hardware.gralloc=/d; /^ro.hardware.vulkan=/d'
 if [ -n "$render_node" ]; then
     printf '%s\n' \
         'ro.hardware.egl=mesa' \
-        'ro.hardware.gralloc=gbm' \
+        'ro.hardware.gralloc=minigbm_gbm_mesa' \
         'ro.hardware.vulkan=intel' >> "$tmp/system-build.prop"
 else
     printf '%s\n' \
