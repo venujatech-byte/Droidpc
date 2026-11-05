@@ -12,6 +12,12 @@
   through this implementation.
 - Android init probes reached framework startup but did not establish
   `sys.boot_completed=1`. There is still no production start/stop lifecycle.
+- The latest supplied log stops SystemServer timing at
+  `DeviceStateManagerService`. The selected vendor image has no
+  `/vendor/etc/devicestate/device_state_configuration.xml`, so its default
+  provider has no sensor conditions to query; the missing sensor HAL alone
+  does not explain that stall. The probe now emits the SystemServer ANR trace
+  before attempting the slower native debugger dump.
 
 ## Blocking runtime contract
 
@@ -31,8 +37,10 @@ runtime dependency.
 
 ## Next action
 
-Give Droidpc its own host SELinux rootfs label and confined guest transition,
-granting Binder context-manager access only within its private BinderFS.
-Then verify the transition and BinderFS allocation in an enforcing disposable
-container before implementing the supervised boot lifecycle. No existing
-Android guest state or host policy may be modified for these checks.
+Use the captured SystemServer ANR stack to identify the synchronous boot
+stall, then fix the guest/runtime contract that causes it. Do not add a
+vendor-property workaround based only on the missing sensor HAL: the selected
+vendor image contains no device-state config. After framework boot completes,
+implement and verify the confined SELinux transition and supervised lifecycle
+with persistent `/data`; the permissive diagnostic policy is not runtime
+policy. No existing Android guest state or host policy may be modified.
