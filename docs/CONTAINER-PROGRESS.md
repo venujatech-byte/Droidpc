@@ -2,6 +2,15 @@
 
 ## Current state
 
+- Latest host boot evidence: Mesa now identifies `renderD128` and `card1`,
+  but both the Android graphics-user check and Mesa fail to open them with
+  `EACCES`. Reproducing the mount pattern with `/dev/null` confirmed that
+  Bubblewrap's `--ro-bind` disables device access; `--dev-bind` succeeds,
+  while adding `--remount-ro` denies access again. The probe now uses
+  `--dev-bind` for its private tmpfs DRM nodes. Host node permissions stay
+  unchanged. This fixes the reproduced mount-level cause; the updated
+  Android boot has not yet been run.
+
 - Image verification exists in `droidpc-container`.
 - `loop_device::LoopDevice` retains the verified image handle and configures
   a read-only loop device with autoclear atomically. `mounts::ImageMount`

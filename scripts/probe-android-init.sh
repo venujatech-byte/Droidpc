@@ -344,7 +344,8 @@ set -- "$@" \
         --proc /proc --dev /dev \
         --dir /dev/socket --tmpfs /tmp
 if [ -n "$render_node" ]; then
-    set -- "$@" --dir /dev/dri --ro-bind "$tmp/dri" /dev/dri
+    # Regular binds/remount-ro add nodev; these are disposable guest nodes.
+    set -- "$@" --dir /dev/dri --dev-bind "$tmp/dri" /dev/dri
 fi
 if [ -n "$wayland_socket" ]; then
     set -- "$@" \
