@@ -1,5 +1,6 @@
 pub mod binder;
 pub mod loop_device;
+pub mod mounts;
 
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
