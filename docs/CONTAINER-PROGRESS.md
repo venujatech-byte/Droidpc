@@ -40,6 +40,16 @@
 - The probe also supplies the vendor image's `android_guest.stub_sensors_hal=1`
   property and captures the first SystemServer ANR, but the latest supplied
   run did not include a value for the stub property and produced no ANR trace.
+- Additional graphics prerequisite found by inspecting the selected vendor
+  image's `/lib64/libdrm.so`: it contains lookups for
+  `/sys/dev/char/%d:%d/device/drm`, `/sys/dev/char/%d:%d/device`, and
+  `/sys/bus/pci/devices/...`. The probe currently binds an empty private
+  directory as `/sys`, so those paths cannot resolve even if DRM nodes open.
+  [Upstream libdrm's Linux node identification and PCI discovery code](https://android.googlesource.com/platform/external/libdrm/+/refs/heads/main/xf86drm.c)
+  confirms this dependency. This is a likely additional cause of failed Mesa
+  device discovery, not proof of the exact failing call in the supplied run.
+  A minimum read-only GPU sysfs view is still required; do not expose writable
+  host sysfs as a workaround.
 
 ## Blocking runtime contract
 
@@ -77,7 +87,8 @@ The current agent environment has no `/dev/loop-control` or `/dev/dri`, no
 effective capabilities, and `NoNewPrivs=1`. There is no connected host shell
 tool. Local compilation and unit tests cannot prove this privileged gate.
 
-Check whether the matching card node and vendor allocator let SurfaceFlinger
+Implement the minimum selected-GPU sysfs view before requesting another full
+boot probe. Then check whether the matching card and vendor allocator let SurfaceFlinger
 stay up and whether the stub property is effective. If SurfaceFlinger remains
 stable, use the ANR capture to identify the next framework blocker. Then
 implement and verify the confined SELinux transition and supervised lifecycle
