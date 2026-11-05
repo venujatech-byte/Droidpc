@@ -135,6 +135,51 @@ impl Drop for ImageMount {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    fn owned_directory() -> ImageMount {
+        let path = std::env::temp_dir().join(format!(
+            "droidpc-mount-cleanup-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed),
+        ));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        ImageMount {
+            target: CString::new(path.as_os_str().as_encoded_bytes()).unwrap(),
+            path,
+            device: None,
+            mounted: false,
+            directory_owned: true,
+            _thread_bound: std::marker::PhantomData,
+        }
+    }
+
+    #[test]
+    fn cleanup_removes_only_an_empty_owned_directory() {
+        let owner = owned_directory();
+        let path = owner.path().to_path_buf();
+        owner.cleanup().unwrap();
+        assert!(!path.exists());
+
+        let owner = owned_directory();
+        let path = owner.path().to_path_buf();
+        let data = path.join("preserve");
+        fs::write(&data, b"guest data").unwrap();
+        assert!(owner.cleanup().is_err());
+        assert_eq!(fs::read(&data).unwrap(), b"guest data");
+        fs::remove_file(data).unwrap();
+        fs::remove_dir(path).unwrap();
+    }
+
+    #[test]
+    fn drop_removes_an_empty_owned_directory() {
+        let owner = owned_directory();
+        let path = owner.path().to_path_buf();
+        drop(owner);
+        assert!(!path.exists());
+    }
 
     #[test]
     fn rejects_invalid_targets_before_privileged_operations() {
