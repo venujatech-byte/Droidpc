@@ -8,7 +8,8 @@
   Mesa/minigbm SIGSEGV pattern or `EACCES` open errors. Mesa now logs
   `failed to get driver name for fd -1` and cannot retrieve device information.
   `sys.boot_completed` remained empty until the 120-second timeout, so boot is
-  still incomplete. Host node permissions remain unchanged.
+  still incomplete. The diagnostic timeout is now 180 seconds so its final
+  service snapshot can finish. Host node permissions remain unchanged.
 
 - Image verification exists in `droidpc-container`.
 - `loop_device::LoopDevice` retains the verified image handle and configures

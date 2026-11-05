@@ -379,7 +379,7 @@ fi
 if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
     set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
 fi
-timeout --signal=TERM --kill-after=2s 120s "$@" || status=$?
+timeout --signal=TERM --kill-after=2s 180s "$@" || status=$?
 
 echo "INIT_PROBE_STATUS=$status"
 if [ -n "$render_node" ]; then
