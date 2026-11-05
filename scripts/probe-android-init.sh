@@ -27,8 +27,12 @@ system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 render_node=
+drm_card=
 if [ -c /dev/dri/renderD128 ]; then
     render_node=$(realpath /dev/dri/renderD128)
+fi
+if [ -c /dev/dri/card0 ]; then
+    drm_card=$(realpath /dev/dri/card0)
 fi
 wayland_display=${WAYLAND_DISPLAY:-wayland-0}
 wayland_socket=
@@ -278,6 +282,9 @@ set -- "$@" \
 if [ -n "$render_node" ]; then
     set -- "$@" --dir /dev/dri \
         --dev-bind "$render_node" /dev/dri/renderD128
+    if [ -n "$drm_card" ]; then
+        set -- "$@" --dev-bind "$drm_card" /dev/dri/card0
+    fi
 fi
 if [ -n "$wayland_socket" ]; then
     set -- "$@" \
@@ -319,6 +326,11 @@ if [ -n "$render_node" ]; then
     echo "HOST_RENDER_NODE_AVAILABLE"
 else
     echo "HOST_RENDER_NODE_MISSING"
+fi
+if [ -n "$drm_card" ]; then
+    echo "HOST_DRM_CARD_AVAILABLE"
+else
+    echo "HOST_DRM_CARD_MISSING"
 fi
 if [ -n "$wayland_socket" ]; then
     echo "HOST_WAYLAND_SOCKET_MOUNTED"

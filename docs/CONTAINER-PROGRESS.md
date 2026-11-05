@@ -12,16 +12,14 @@
   through this implementation.
 - Android init probes reached framework startup but did not establish
   `sys.boot_completed=1`. There is still no production start/stop lifecycle.
-- The latest supplied log stops SystemServer timing at
-  `DeviceStateManagerService`. The selected vendor image has no
-  `/vendor/etc/devicestate/device_state_configuration.xml`, so its default
-  provider has no sensor conditions to query; the missing sensor HAL alone
-  does not explain that stall. Separately, the vendor Sensors HAL checks
-  `android_guest.stub_sensors_hal`; the host-generated property file sets it when
-  the host sensor daemon is absent, but the probe had omitted it. The probe
-  now supplies that image-required stub setting and reports its effective
-  value. It also polls for boot completion and saves the first SystemServer
-  ANR trace before the slower native debugger dump.
+- The latest supplied run selects Mesa/GBM, but Mesa says it cannot open a DRM
+  device. SurfaceFlinger then aborts in `validateOutputBufferUsage` with
+  `output buffer not gpu writeable`; it restarts until the probe timeout. The
+  probe passed `/dev/dri/renderD128` but not the primary `/dev/dri/card0` node,
+  so it now passes that node when present. This change is not runtime-verified.
+- The probe also supplies the vendor image's `android_guest.stub_sensors_hal=1`
+  property and captures the first SystemServer ANR, but the latest supplied
+  run did not include a value for the stub property and produced no ANR trace.
 
 ## Blocking runtime contract
 
@@ -41,10 +39,9 @@ runtime dependency.
 
 ## Next action
 
-Use the captured SystemServer ANR stack to identify the synchronous boot
-stall, then fix the guest/runtime contract that causes it. Do not add a
-vendor-property workaround based only on the missing sensor HAL: the selected
-vendor image contains no device-state config. After framework boot completes,
-implement and verify the confined SELinux transition and supervised lifecycle
-with persistent `/data`; the permissive diagnostic policy is not runtime
-policy. No existing Android guest state or host policy may be modified.
+Check whether the card node lets SurfaceFlinger stay up and whether the stub
+property is effective. If SurfaceFlinger remains stable, use the ANR capture
+to identify the next framework blocker. Then implement and verify the confined
+SELinux transition and supervised lifecycle with persistent `/data`; the
+permissive diagnostic policy is not runtime policy. No existing Android guest state
+or host policy may be modified.
