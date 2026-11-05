@@ -148,101 +148,39 @@ order.
 
 ## 5. Current Android boot blocker
 
-The latest run reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`. The
-32-bit BoringSSL self-test passed and both private Binder device paths open.
-`zygote` started and accepted connections, but `ANDROID_BOOT_NOT_COMPLETED`
-remains. The debug console's no-controlling-tty warning is expected; status
-That run's status 124 was the probe's 45-second timeout. Logcat identifies
-`lmkd`'s remaining restart cause: PSI monitor access returns `EACCES`, and
-this kernel has no cgroup-v1 `memory.pressure_level` fallback. Linux restricts unprivileged PSI
-monitors to 2-second-multiple windows, while this Android `lmkd` uses a
-1-second window, so mapping its UID to the PSI file owner cannot solve the
-failure. SurfaceFlinger and several hardware services also fail in this
-headless container. Further progress requires host-level `CAP_SYS_RESOURCE`
-or a different runtime/kernel boundary; the current user-namespace probe
-cannot grant that capability.
+The latest supplied host-capability run reached `INIT_TRIGGER_OK` and
+`LATE_INIT_TRIGGERED`, opened both Binder paths, and passed the 32-bit
+BoringSSL self-test. It ran for the full 120-second timeout without
+`sys.boot_completed=1`. Mesa no longer logs the earlier DRM `EACCES` after
+the probe changed its private device nodes to mode `0666`; it still reports
+`failed to get driver name for fd -1`. Launcher and SystemUI no longer show
+the earlier Mesa/minigbm segmentation-fault pattern, but visible rendering
+and package-manager readiness are not established. The debug console's
+no-controlling-tty warning is expected.
 
-An opt-in diagnostic can run Android init in the host user namespace while
-keeping its mount, PID, IPC, UTS, network, and cgroup namespaces private. It
-drops host reboot, module-loading, raw-I/O, time-setting, and ptrace
-capabilities, but retains `CAP_SYS_ADMIN` for Android mounts and
-`CAP_SYS_RESOURCE` for PSI. Run it only on a disposable host:
+This opt-in diagnostic runs init in the host user namespace while keeping
+mount, PID, IPC, UTS, network, and cgroup namespaces private. It drops host
+reboot, module-loading, raw-I/O, time-setting, and ptrace capabilities, while
+retaining `CAP_SYS_ADMIN` and `CAP_SYS_RESOURCE`. It can affect host kernel
+state; use it only for diagnostics on a disposable host:
 
 ```sh
 sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
-This mode can still affect host kernel state; it is a diagnostic, not a safe
-daily runtime. It has been run once. `system_server` started, with no `lmkd`
-restart reported, but the 45-second run ended before boot completion.
-`system_server` logged PSI trigger `EINVAL`, and SurfaceFlinger crashed. The
-probe now allows 120 seconds and includes those tags in the log summary.
-The probe supplies `ro.sf.lcd_density=160` through a temporary build-property
-overlay. The latest run confirms that property is read, but SurfaceFlinger
-still crashes in vendor ANGLE (`libGLESv2_angle.so`) after a null EGL context;
-the Android guest composer service also exits. The probe now selects the Android 13
-ANGLE plus Pastel software-rendering path and reports the effective graphics
-properties. This host has no `/dev/dri` device, so the probe now exposes the
-active Wayland session socket to the Android guest composer and captures its errors.
-One run reported `HOST_WAYLAND_SOCKET_MISSING`; detection now falls back to a
-socket under `/run/user/<invoking-uid>`. The latest run mounted it, but HWC
-looked under `/run/user/1000` while the socket was under `/tmp`. The probe now
-mounts it at HWC's runtime path using a staged `/run` tree. The next run exited
-before init because Bubblewrap could not create `/run/user` in the read-only
-image. Re-run to check whether the staged mount lets composer register.
-The next attempt stopped before init because that branch omitted the `/tmp`
-tmpfs used by probe helpers; the probe now mounts it in both branches.
-The previous run confirmed HWC connects and SurfaceFlinger receives a display
-hotplug event, then aborts with `output buffer not gpu writeable`; SwiftShader
-rejects an AHardwareBuffer format and `gralloc.default` reports ashmem
-allocation failures. The latest run confirms `sys.use_memfd=true` and shows
-SystemServer progressing into `StartDropBoxManager`, then repeated ActivityManager
-stack dumps about every 45 seconds. At 110 seconds, zygote, SurfaceFlinger and
-boot animation were still running, while `sys.boot_completed` remained empty.
-The host's Android guest config and earlier startup log show a Mesa/GBM render-node
-path; the probe now passes that node through when present. It also captures
-the SystemServer process and latest ANR trace at 110 seconds.
+The run repeatedly logs `incidentd` exits because it requests
+`CAP_SYS_PTRACE`, which this diagnostic intentionally drops. BPF setup also
+reports missing guest bpffs paths. These failures are recorded; they do not
+yet establish why `sys.boot_completed` stays empty. The probe's final snapshot
+now checks ActivityManager and package services before timeout and omits the
+unbounded SystemServer stack dump.
 
-The probe is diagnostic, not the production container. The installed Android guest
-LXC config binds persistent `/data`, stages Wayland and Pulse under
-`/run/xdg`, and binds the host-generated `/vendor/android_guest.prop`. This probe
-uses disposable `/data`, stages Wayland under `/run/user/<uid>`, and supplies
-the vendor Sensors HAL's `android_guest.stub_sensors_hal=1` setting. An older
-Android guest ANR dump shows
-`system_server`'s main thread idle in its normal looper, but it does not record
-`sys.boot_completed`; it cannot establish a successful boot. The current probe
-therefore does not establish a working Android container. The next runtime
-milestone is to implement Droidpc's own isolated mounts and lifecycle with
-persistent data, then validate boot through `sys.boot_completed=1` and a
-responsive package manager. Repeating this init probe alone cannot complete
-that milestone.
-
-The latest GPU-enabled run selects Mesa/GBM, but Mesa reports that it cannot
-open a DRM device. SurfaceFlinger then aborts with `output buffer not gpu
-writeable`. The probe originally exposed only `/dev/dri/renderD128`; the
-current host's sysfs maps that node to `/dev/dri/card1`. The probe now matches
-and passes the associated primary card. This fix still needs a run on the host
-to verify that SurfaceFlinger remains up.
-
-The plain probe process uses the host's `unconfined_t` SELinux domain;
-Android's SELinux policy is not loaded into the shared host kernel. Init also
-logs permission failures while setting ownership and mode on
-`/proc/pressure/memory`. The default diagnostic wrapper temporarily runs
-`lmkd` as Android root inside the user namespace.
-The `console:/ $` prompt and “No controlling tty” warning come from the image's
-debug console service; they do not mean `sys.boot_completed=1`.
-
-The temporary SELinux domain lets Binder-dependent init commands run, and the
-1 GiB memlock limit lets `bpfloader` start. BPF map creation still fails with
-`Operation not permitted` in the user namespace. The latest bounded run
-reached the 45-second timeout with `lmkd` fatal reboot suppression enabled.
-ART started and accepted zygote socket connections, but
-`sys.boot_completed=1` was not reached. PSI monitoring needs host-level
-`CAP_SYS_RESOURCE` for Android's 1-second monitor window; the user-namespace
-probe cannot provide it. SurfaceFlinger also crashes in this headless setup.
-The temporary SELinux module is removed on exit. These settings diagnose boot
-in this environment; they are not a production security configuration or a
-complete boot fix.
+The host DRM node maps to `card1`; the probe passes that card and a private
+sysfs discovery snapshot alongside `renderD128`. The guest SELinux policy is
+not loaded into the shared host kernel. The temporary host diagnostic domain
+is permissive and removed after the run; it is not a production SELinux
+configuration. `sys.boot_completed=1` and a responsive package manager remain
+required before this can be called a working container.
 
 Common output meanings:
 
@@ -344,6 +282,7 @@ When a probe fails, record the exact command, first meaningful error, and
 whether temporary resources remained. Never “fix” an error by disabling
 SELinux or changing host-wide cgroups.
 
-**Current handoff:** run the command in section 5 once and report whether
-`ANDROID_BOOT_COMPLETED` appears. If it does not, send the full output so
-we can fix the earliest startup failure before adding more services.
+**Current handoff:** the latest run still lacks `sys.boot_completed`. Use the
+updated bounded snapshot to identify whether ActivityManager and package
+services respond, then resolve that boot blocker before starting the
+production lifecycle work.
