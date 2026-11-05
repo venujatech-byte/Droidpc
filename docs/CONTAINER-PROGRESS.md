@@ -87,9 +87,16 @@ persistent guest data. It attempts normal cleanup and rolls back the system
 mount if vendor setup fails; injected failures after successful mounts and concurrent loop
 allocation still need runtime coverage.
 
-The current agent environment has no `/dev/loop-control` or `/dev/dri`, no
-effective capabilities, and `NoNewPrivs=1`. There is no connected host shell
-tool. Local compilation and unit tests cannot prove this privileged gate.
+Sandboxed execution has no `/dev/loop-control` or `/dev/dri`, no effective
+capabilities, and `NoNewPrivs=1`. Execution outside the sandbox does reach the
+host devices with `NoNewPrivs=0`, but `sudo -n true` reports that a password is
+required. Privileged staging and Android boot remain unverified.
+
+The GPU snapshot helper was run directly against host sysfs without root:
+`renderD128` reported `226:128`, its matching `card1` reported `226:1`, and
+both exposed PCI vendor `0x8086` through the staged discovery links. Every
+snapshot symlink resolved inside the temporary snapshot. This validates
+snapshot construction on the actual GPU, not Mesa initialization or boot.
 
 The next host boot run should use the current probe, which includes the PCI
 GPU sysfs snapshot, private graphics-group device nodes, matched primary card,
