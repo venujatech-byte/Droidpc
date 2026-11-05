@@ -144,11 +144,19 @@ sleep 110
         getprop "$property"
     done
     echo '--- SystemServer process ---'
+    server_pid=$(pidof system_server)
     ps -A | grep system_server
+    if [ -n "$server_pid" ]; then
+        echo "--- SystemServer thread stacks (pid $server_pid) ---"
+        /system/bin/debuggerd -b "$server_pid" 2>&1
+    else
+        echo 'SYSTEM_SERVER_STACKS_UNAVAILABLE'
+    fi
     anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
     if [ -n "$anr" ]; then
         echo "--- Latest ANR trace: $anr ---"
-        head -n 160 "$anr"
+        awk '/Cmd line: system_server/ { remaining = 241 }
+            remaining > 0 { print; remaining-- }' "$anr"
     else
         echo 'LATEST_ANR_TRACE_MISSING'
     fi

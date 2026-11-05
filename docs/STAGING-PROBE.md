@@ -381,8 +381,10 @@ The next run confirms `sys.use_memfd=true`. SystemServer progressed through
 `StartDropBoxManager` but repeatedly dumped stacks about every 45 seconds; the
 final snapshot showed zygote, SurfaceFlinger and boot animation still running,
 with `sys.boot_completed` empty. The shown logcat excerpt does not include the
-earlier SurfaceFlinger abort. The probe now captures the SystemServer process
-and the latest ANR trace at 110 seconds to identify the startup stall.
+earlier SurfaceFlinger abort. The probe requests SystemServer's native thread
+stacks at 110 seconds and, when an ANR trace exists, prints its SystemServer
+section instead of the unrelated first 160 lines. This may identify a blocked
+thread in one run; it does not itself prove or fix Android boot.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
