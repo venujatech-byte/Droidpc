@@ -89,12 +89,12 @@ if [ -n "$render_node" ]; then
         esac
         node_path=$tmp/dri/$node_name
         mknod "$node_path" c "$node_major" "$node_minor"
-        # Android's AID_GRAPHICS is 1003; keep ownership private to the guest.
+        # App processes lack AID_GRAPHICS; only expose these private guest nodes.
         chown 0:1003 "$node_path"
-        chmod 0660 "$node_path"
+        chmod 0666 "$node_path"
         expected_device=$(printf '%x:%x' "$node_major" "$node_minor")
         if [ "$(stat -c '%t:%T' "$node_path")" != "$expected_device" ] \
-            || [ "$(stat -c '%u:%g:%a' "$node_path")" != '0:1003:660' ]; then
+            || [ "$(stat -c '%u:%g:%a' "$node_path")" != '0:1003:666' ]; then
             echo "Invalid staged DRM node: $node_name" >&2
             return 1
         fi
@@ -205,17 +205,12 @@ report=/data/droidpc-final-state
 echo 'BOOT_DIAGNOSTIC_STARTED' > "$report"
 anr_captured=
 attempt=0
-while [ "$attempt" -lt 22 ]; do
+while [ "$attempt" -lt 18 ]; do
     boot_completed=$(getprop sys.boot_completed)
     if [ -z "$anr_captured" ]; then
         anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
         if [ -n "$anr" ]; then
-            {
-                echo "--- Latest ANR trace: $anr ---"
-                awk '/Cmd line: system_server/ { capture = 1 }
-                    capture { print }
-                    capture && /^----- end / { exit }' "$anr"
-            } >> "$report"
+            echo "LATEST_ANR_TRACE=$anr" >> "$report"
             anr_captured=1
         fi
     fi
@@ -234,22 +229,19 @@ done
     echo '--- SystemServer process ---'
     server_pid=$(pidof system_server)
     ps -A | grep system_server
+    echo '--- Framework service checks ---'
+    /system/bin/service check activity 2>&1 || true
+    /system/bin/service check package 2>&1 || true
     if [ -z "$anr_captured" ]; then
         anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
         if [ -n "$anr" ]; then
-            echo "--- Latest ANR trace: $anr ---"
-            awk '/Cmd line: system_server/ { capture = 1 }
-                capture { print }
-                capture && /^----- end / { exit }' "$anr"
+            echo "LATEST_ANR_TRACE=$anr"
         else
             echo 'LATEST_ANR_TRACE_MISSING'
         fi
     fi
     if [ -z "$server_pid" ]; then
         echo 'SYSTEM_SERVER_STACKS_UNAVAILABLE'
-    else
-        echo "--- SystemServer thread stacks (pid $server_pid) ---"
-        /system/bin/debuggerd -b "$server_pid" 2>&1
     fi
 } >> "$report"
 SH

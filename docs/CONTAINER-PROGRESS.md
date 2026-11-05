@@ -2,14 +2,13 @@
 
 ## Current state
 
-- Latest host boot evidence: Mesa now identifies `renderD128` and `card1`,
-  but both the Android graphics-user check and Mesa fail to open them with
-  `EACCES`. Reproducing the mount pattern with `/dev/null` confirmed that
-  Bubblewrap's `--ro-bind` disables device access; `--dev-bind` succeeds,
-  while adding `--remount-ro` denies access again. The probe now uses
-  `--dev-bind` for its private tmpfs DRM nodes. Host node permissions stay
-  unchanged. This fixes the reproduced mount-level cause; the updated
-  Android boot has not yet been run.
+- Latest host boot evidence: the probe starts SurfaceFlinger, zygote,
+  allocator, and HWC. After changing the private DRM nodes to mode `0666`,
+  Launcher/SystemUI no longer show the prior
+  Mesa/minigbm SIGSEGV pattern or `EACCES` open errors. Mesa now logs
+  `failed to get driver name for fd -1` and cannot retrieve device information.
+  `sys.boot_completed` remained empty until the 120-second timeout, so boot is
+  still incomplete. Host node permissions remain unchanged.
 
 - Image verification exists in `droidpc-container`.
 - `loop_device::LoopDevice` retains the verified image handle and configures
@@ -30,25 +29,18 @@
   through this implementation.
 - Android init probes reached framework startup but did not establish
   `sys.boot_completed=1`. There is still no production start/stop lifecycle.
-- The latest supplied run selects Mesa/GBM, but Mesa says it cannot open a DRM
-  device. SurfaceFlinger then aborts in `validateOutputBufferUsage` with
-  `output buffer not gpu writeable`; it restarts until the probe timeout. The
-  probe exposed `/dev/dri/renderD128` without its matching primary DRM card,
-  and host node ownership may block Android's `graphics` group. It now matches
-  the card through sysfs and creates private tmpfs device nodes owned by
-  Android's `graphics` group without changing host node permissions. The
-  current host inventory maps the render node to `card1`, not `card0`. This is
-  not runtime-verified.
+- Earlier runs showed EGL `EACCES` and SurfaceFlinger buffer failures. The
+  current guest nodes are mode `0666`; the latest supplied run no longer shows
+  those errors, but Mesa still logs `fd -1` and Android boot remains
+  incomplete. The probe maps `renderD128` to its actual primary card (`card1`)
+  and keeps both nodes private to the guest mount namespace.
 - The vendor allocator init rule only starts
   `vendor.graphics.allocator-4-0` when `ro.hardware.gralloc=minigbm_gbm_mesa`.
   The probe used `gbm`, so it now sets the exact image value and reports
   allocator/composer service state in the final snapshot.
-- DRM device nodes now live in a private tmpfs with mode `0660` and Android's
-  graphics group for the vendor allocator/HWC. Host node ownership and
-  permissions remain unchanged; runtime access is not yet verified.
-- The probe also supplies the vendor image's `android_guest.stub_sensors_hal=1`
-  property and captures the first SystemServer ANR, but the latest supplied
-  run did not include a value for the stub property and produced no ANR trace.
+- The probe supplies the vendor image's `android_guest.stub_sensors_hal=1`
+  property. SystemServer ANR traces are reported by path to keep diagnostics
+  bounded.
 - Additional graphics prerequisite found by inspecting the selected vendor
   image's `/lib64/libdrm.so`: it contains lookups for
   `/sys/dev/char/%d:%d/device/drm`, `/sys/dev/char/%d:%d/device`, and
@@ -123,20 +115,8 @@ minimal environment emitted the expected missing-linkerconfig warning.
 This verifies Android vendor-library discovery, not EGL/Mesa rendering,
 allocator operation, privileged image staging, or Android boot completion.
 
-The next host boot run should use the current probe, which includes the PCI
-GPU sysfs snapshot, private graphics-group device nodes, matched primary card,
-and correct vendor allocator property:
-
-```sh
-sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
-```
-
-Keep the `HOST_DRM_CARD` line, `Android graphics user DRM access` section,
-effective graphics properties, and final boot/service state. These establish
-whether device access succeeds, the allocator starts, and SurfaceFlinger
-stays up. An empty `sys.boot_completed` still means boot is unproven. If
-SurfaceFlinger remains
-stable, use the ANR capture to identify the next framework blocker. Then
-implement and verify the confined SELinux transition and supervised lifecycle
-with persistent `/data`; the permissive diagnostic policy is not runtime
-policy. No existing Android guest state or host policy may be modified.
+The latest host-capability run still timed out without `sys.boot_completed`.
+The next diagnostic snapshot now reports ActivityManager/package service
+checks before the timeout and omits the unbounded SystemServer stack dump.
+The probe remains diagnostic only; production boot requires the scoped
+capability, SELinux and cgroup contract described above.
