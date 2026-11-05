@@ -148,15 +148,15 @@ order.
 
 ## 5. Current Android boot blocker
 
-The latest supplied host-capability run reached `INIT_TRIGGER_OK` and
-`LATE_INIT_TRIGGERED`, opened both Binder paths, and passed the 32-bit
-BoringSSL self-test. It ran for the full 120-second timeout without
-`sys.boot_completed=1`. Mesa no longer logs the earlier DRM `EACCES` after
-the probe changed its private device nodes to mode `0666`; it still reports
-`failed to get driver name for fd -1`. Launcher and SystemUI no longer show
-the earlier Mesa/minigbm segmentation-fault pattern, but visible rendering
-and package-manager readiness are not established. The debug console's
-no-controlling-tty warning is expected.
+The two supplied host-capability runs have different outcomes. The earlier
+run reached `sys.boot_completed=1`; the later run reached framework and
+launcher/SystemUI startup but ended at the 180-second timeout without that
+property. Both reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`, opened
+Binder paths, and passed the 32-bit BoringSSL self-test. The later run still
+logged `failed to get driver name for fd -1`; visible rendering and
+package-manager readiness are not established. Its final init log shows
+shutdown after the timeout. The debug console's no-controlling-tty warning is
+expected.
 
 This opt-in diagnostic runs init in the host user namespace while keeping
 mount, PID, IPC, UTS, network, and cgroup namespaces private. It drops host

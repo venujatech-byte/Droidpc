@@ -2,14 +2,13 @@
 
 ## Current state
 
-- Latest host boot evidence: the probe starts SurfaceFlinger, zygote,
-  allocator, and HWC. After changing the private DRM nodes to mode `0666`,
-  Launcher/SystemUI no longer show the prior
-  Mesa/minigbm SIGSEGV pattern or `EACCES` open errors. Mesa now logs
-  `failed to get driver name for fd -1` and cannot retrieve device information.
-  `sys.boot_completed` remained empty until the 120-second timeout, so boot is
-  still incomplete. The diagnostic timeout is now 180 seconds so its final
-  service snapshot can finish. Host node permissions remain unchanged.
+- Latest host boot evidence is inconsistent across runs: one reached
+  `sys.boot_completed=1`; the later run reached framework and
+  Launcher/SystemUI startup but timed out without it. The later run still
+  logged Mesa `failed to get driver name for fd -1`. Its init log shows
+  shutdown after the 180-second timeout. This does not establish reliable
+  boot completion or visible rendering. Host node permissions remain
+  unchanged.
 
 - Image verification exists in `droidpc-container`.
 - `loop_device::LoopDevice` retains the verified image handle and configures
@@ -29,8 +28,9 @@
   layout is unit tested. The `binder` example now checks each device is a
   character device, opens it read/write, and explicitly cleans up; kernel
   mount/allocation/cleanup through this implementation still need a host run.
-- Android init probes reached framework startup but did not establish
-  `sys.boot_completed=1`. There is still no production start/stop lifecycle.
+- Android init reached `sys.boot_completed=1` in one supplied run; the later
+  run timed out before setting it. Reliable boot completion remains
+  unverified, and there is still no production start/stop lifecycle.
 - Earlier runs showed EGL `EACCES` and SurfaceFlinger buffer failures. The
   current guest nodes are mode `0666`; the latest supplied run no longer shows
   those errors, but Mesa still logs `fd -1` and Android boot remains
