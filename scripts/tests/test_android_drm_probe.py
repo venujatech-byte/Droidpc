@@ -12,6 +12,8 @@ class DrmProbeTests(unittest.TestCase):
         helper = source.split(
             'cat > "$tmp/read-drm.sh" <<\'SH\'\n', 1
         )[1].split('\nSH\n', 1)[0]
+        self.assertIn('exec - 10102 10102 -- /system/bin/sh /tmp/droidpc-read-drm.sh', source)
+        self.assertIn('exec - 10108 10108 -- /system/bin/sh /tmp/droidpc-read-drm.sh', source)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             nodes = root / 'dri'
@@ -21,7 +23,7 @@ class DrmProbeTests(unittest.TestCase):
                 '/data/droidpc-drm-access', str(report))
 
             def run():
-                subprocess.run(['sh', '-c', script], check=True,
+                subprocess.run(['sh', '-c', script, 'probe', str(report)], check=True,
                                start_new_session=True)
                 return report.read_text()
 

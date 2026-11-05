@@ -44,6 +44,10 @@
   services running as `host`. It reports the guest UID/GID maps and audio
   service state alongside HWC. SystemServer ANR traces are reported by path
   to keep diagnostics bounded.
+- The DRM probe now opens the staged nodes as Android `system` and as the
+  launcher (UID 10102) and SystemUI (UID 10108), matching the app identities
+  seen in the captured crash log. Those app-UID access checks have not yet been
+  verified in a host run.
 - Additional graphics prerequisite found by inspecting the selected vendor
   image's `/lib64/libdrm.so`: it contains lookups for
   `/sys/dev/char/%d:%d/device/drm`, `/sys/dev/char/%d:%d/device`, and

@@ -152,6 +152,7 @@ cat > "$tmp/read-dev.sh" <<'SH'
 SH
 cat > "$tmp/read-drm.sh" <<'SH'
 #!/system/bin/sh
+report=$1
 {
     id
     found=
@@ -165,7 +166,7 @@ cat > "$tmp/read-drm.sh" <<'SH'
         fi
     done
     [ -n "$found" ] || echo DRM_GRAPHICS_NODES_MISSING
-} > /data/droidpc-drm-access 2>&1
+} > "$report" 2>&1
 SH
 cat > "$tmp/read-binder.sh" <<'SH'
 #!/system/bin/sh
@@ -271,7 +272,13 @@ printf '%s\n' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-dev.sh' \
     '    write /data/droidpc-drm-access DRM_GRAPHICS_CHECK_NOT_RUN' \
     '    chown system graphics /data/droidpc-drm-access' \
-    '    exec - system graphics -- /system/bin/sh /tmp/droidpc-read-drm.sh' \
+    '    exec - system graphics -- /system/bin/sh /tmp/droidpc-read-drm.sh /data/droidpc-drm-access' \
+    '    write /data/droidpc-drm-launcher-access DRM_GRAPHICS_CHECK_NOT_RUN' \
+    '    chown 10102 10102 /data/droidpc-drm-launcher-access' \
+    '    exec - 10102 10102 -- /system/bin/sh /tmp/droidpc-read-drm.sh /data/droidpc-drm-launcher-access' \
+    '    write /data/droidpc-drm-systemui-access DRM_GRAPHICS_CHECK_NOT_RUN' \
+    '    chown 10108 10108 /data/droidpc-drm-systemui-access' \
+    '    exec - 10108 10108 -- /system/bin/sh /tmp/droidpc-read-drm.sh /data/droidpc-drm-systemui-access' \
     '    task_profiles HighPerformance' \
     '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-read-final-state.sh' \
@@ -443,9 +450,15 @@ if [ -f "$tmp/data/droidpc-devices" ]; then
         cat "$tmp/data/droidpc-dri-devices"
     fi
     if [ -f "$tmp/data/droidpc-drm-access" ]; then
-        echo "--- Android graphics user DRM access ---"
+        echo "--- Android system user DRM access ---"
         cat "$tmp/data/droidpc-drm-access"
     fi
+    for app in launcher systemui; do
+        if [ -f "$tmp/data/droidpc-drm-$app-access" ]; then
+            echo "--- Android $app DRM access ---"
+            cat "$tmp/data/droidpc-drm-$app-access"
+        fi
+    done
 else
     echo "GUEST_DEVICE_LIST_MISSING"
 fi
