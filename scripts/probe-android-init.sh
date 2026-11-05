@@ -137,8 +137,30 @@ getprop sys.use_memfd > /data/droidpc-use-memfd
 SH
 cat > "$tmp/read-final-state.sh" <<'SH'
 #!/system/bin/sh
-sleep 110
+report=/data/droidpc-final-state
+echo 'BOOT_DIAGNOSTIC_STARTED' > "$report"
+anr_captured=
+attempt=0
+while [ "$attempt" -lt 22 ]; do
+    boot_completed=$(getprop sys.boot_completed)
+    if [ -z "$anr_captured" ]; then
+        anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
+        if [ -n "$anr" ]; then
+            {
+                echo "--- Latest ANR trace: $anr ---"
+                awk '/Cmd line: system_server/ { capture = 1 }
+                    capture { print }
+                    capture && /^----- end / { exit }' "$anr"
+            } >> "$report"
+            anr_captured=1
+        fi
+    fi
+    [ "$boot_completed" = 1 ] && break
+    sleep 5
+    attempt=$((attempt + 1))
+done
 {
+    echo '--- Final boot/service state ---'
     for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote init.svc.bootanim; do
         printf '%s=' "$property"
         getprop "$property"
@@ -146,22 +168,24 @@ sleep 110
     echo '--- SystemServer process ---'
     server_pid=$(pidof system_server)
     ps -A | grep system_server
-    anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
-    if [ -n "$anr" ]; then
-        echo "--- Latest ANR trace: $anr ---"
-        awk '/Cmd line: system_server/ { capture = 1 }
-            capture { print }
-            capture && /^----- end / { exit }' "$anr"
-    else
-        echo 'LATEST_ANR_TRACE_MISSING'
+    if [ -z "$anr_captured" ]; then
+        anr=$(ls -t /data/anr/anr_* 2>/dev/null | head -n 1)
+        if [ -n "$anr" ]; then
+            echo "--- Latest ANR trace: $anr ---"
+            awk '/Cmd line: system_server/ { capture = 1 }
+                capture { print }
+                capture && /^----- end / { exit }' "$anr"
+        else
+            echo 'LATEST_ANR_TRACE_MISSING'
+        fi
     fi
-    if [ -n "$server_pid" ]; then
+    if [ -z "$server_pid" ]; then
+        echo 'SYSTEM_SERVER_STACKS_UNAVAILABLE'
+    else
         echo "--- SystemServer thread stacks (pid $server_pid) ---"
         /system/bin/debuggerd -b "$server_pid" 2>&1
-    else
-        echo 'SYSTEM_SERVER_STACKS_UNAVAILABLE'
     fi
-} > /data/droidpc-final-state
+} >> "$report"
 SH
 printf '%s\n' \
     'on early-init' \
