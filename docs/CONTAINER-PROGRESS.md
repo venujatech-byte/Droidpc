@@ -3,6 +3,15 @@
 ## Current state
 
 - Image verification exists in `droidpc-container`.
+- `loop_device::LoopDevice` retains the verified image handle and configures
+  a read-only loop device with autoclear atomically. `mounts::ImageMount`
+  mounts ext4 with `ro,nosuid,nodev,norecovery` in a private mount namespace
+  and provides explicit unmount/loop/directory cleanup. ABI and directory
+  cleanup tests pass; privileged attachment, mount and cleanup through this
+  Rust implementation have not been verified.
+- The `stage` example checks both image layouts, requires write attempts to
+  fail with `EROFS`, explicitly cleans up both mounts, then verifies the
+  original image hashes again. It is a staging check, not Android startup.
 - Disposable experiments proved read-only system/vendor staging and an
   isolated Android shell. A privileged experiment also verified kernel
   read-only loop mounts in a private mount namespace.
@@ -49,6 +58,24 @@ confined transition are still required, and the Android guest policy must not be
 runtime dependency.
 
 ## Next action
+
+First validate the new Rust image ownership path on the host:
+
+```sh
+cargo build -p droidpc-container --example stage
+sudo ./target/debug/examples/stage "$PWD/os_images/selected"
+```
+
+Success prints `System/vendor staged read-only, cleaned up, hashes unchanged`.
+An error is not a passing staging gate. The example uses a new private
+`/tmp/droidpc-stage-<pid>` directory and does not start Android or touch
+persistent guest data. It attempts normal cleanup and rolls back the system
+mount if vendor setup fails; injected failures after successful mounts and concurrent loop
+allocation still need runtime coverage.
+
+The current agent environment has no `/dev/loop-control` or `/dev/dri`, no
+effective capabilities, and `NoNewPrivs=1`. There is no connected host shell
+tool. Local compilation and unit tests cannot prove this privileged gate.
 
 Check whether the matching card node and vendor allocator let SurfaceFlinger
 stay up and whether the stub property is effective. If SurfaceFlinger remains
