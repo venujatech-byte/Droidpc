@@ -198,6 +198,8 @@ getprop ro.hardware.gralloc > /data/droidpc-hardware-gralloc
 getprop ro.hardware.vulkan > /data/droidpc-hardware-vulkan
 getprop sys.use_memfd > /data/droidpc-use-memfd
 getprop android_guest.stub_sensors_hal > /data/droidpc-stub-sensors-hal
+getprop android_guest.host.uid > /data/droidpc-host-uid
+getprop android_guest.host.gid > /data/droidpc-host-gid
 SH
 cat > "$tmp/read-final-state.sh" <<'SH'
 #!/system/bin/sh
@@ -221,7 +223,8 @@ done
 {
     echo '--- Final boot/service state ---'
     for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote \
-        init.svc.bootanim init.svc.vendor.graphics.allocator-4-0 \
+        init.svc.bootanim init.svc.vendor.audio-hal \
+        init.svc.vendor.audio-hal-2-0 init.svc.vendor.graphics.allocator-4-0 \
         init.svc.vendor.hwcomposer-2-1; do
         printf '%s=' "$property"
         getprop "$property"
@@ -306,7 +309,13 @@ else
         'ro.hardware.vulkan=pastel' >> "$tmp/system-build.prop"
 fi
 printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
-printf '%s\n' 'android_guest.stub_sensors_hal=1' > "$tmp/vendor-android_guest.prop"
+host_uid=$(id -u "$SUDO_USER")
+host_gid=$(id -g "$SUDO_USER")
+printf '%s\n' \
+    "android_guest.host.user=$SUDO_USER" \
+    "android_guest.host.uid=$host_uid" \
+    "android_guest.host.gid=$host_gid" \
+    'android_guest.stub_sensors_hal=1' > "$tmp/vendor-android_guest.prop"
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
@@ -473,7 +482,7 @@ for name in bootmode crypto-state; do
     fi
 done
 for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan \
-    use-memfd stub-sensors-hal; do
+    use-memfd stub-sensors-hal host-uid host-gid; do
     label=$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')
     printf 'GUEST_%s=' "$label"
     if [ -f "$tmp/data/droidpc-$name" ]; then

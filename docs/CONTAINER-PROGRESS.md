@@ -40,8 +40,9 @@
   The probe used `gbm`, so it now sets the exact image value and reports
   allocator/composer service state in the final snapshot.
 - The probe supplies the vendor image's `android_guest.stub_sensors_hal=1`
-  property. SystemServer ANR traces are reported by path to keep diagnostics
-  bounded.
+  property and host user/UID/GID properties used by vendor audio and HWC
+  services running as `host`. It reports audio service state alongside HWC.
+  SystemServer ANR traces are reported by path to keep diagnostics bounded.
 - Additional graphics prerequisite found by inspecting the selected vendor
   image's `/lib64/libdrm.so`: it contains lookups for
   `/sys/dev/char/%d:%d/device/drm`, `/sys/dev/char/%d:%d/device`, and
