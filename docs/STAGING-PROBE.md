@@ -323,6 +323,14 @@ raw-I/O, time-setting, and ptrace capabilities. It still grants host
 run. The lmkd/zygote overrides and 1 GiB memlock limit affect only the
 temporary probe configuration; the host's global memlock limit is unchanged.
 
+**Host-capability run (2026-11-05):** this opt-in mode reached `system_server`
+startup and reported no `lmkd` restart. `system_server` then logged a PSI
+trigger write failure (`EINVAL`), and SurfaceFlinger crashed with signal 11.
+The run still ended at the 45-second probe timeout before
+`sys.boot_completed=1`; the shutdown lines are consistent with that timeout.
+The next bounded run is extended to 120 seconds and captures the additional
+`LowMemDetector`, `SurfaceFlinger`, and crash tags.
+
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses
 Bubblewrap's private device setup to provide standard device nodes.

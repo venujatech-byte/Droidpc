@@ -191,7 +191,7 @@ fi
 if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
     set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
 fi
-timeout --signal=TERM --kill-after=2s 45s "$@" || status=$?
+timeout --signal=TERM --kill-after=2s 120s "$@" || status=$?
 
 echo "INIT_PROBE_STATUS=$status"
 if [ -s "$tmp/data/droidpc-early-init" ]; then
@@ -281,8 +281,8 @@ echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
 if [ -f "$tmp/data/droidpc-logcat" ]; then
     echo "--- Android logcat failures ---"
-    grep -E -i 'lmkd|lowmemorykiller|psi|memory pressure|bpfloader|zygote|system_server|systemserver|AndroidRuntime|ActivityManager|fatal|boot_completed' \
-        "$tmp/data/droidpc-logcat" | tail -n 120 || true
+    grep -E -i 'lmkd|lowmemorykiller|lowmemdetector|psi|memory pressure|bpfloader|zygote|system_server|systemserver|SystemServer|ActivityManager|AndroidRuntime|surfaceflinger|incidentd|fatal|crash|boot_completed' \
+        "$tmp/data/droidpc-logcat" | tail -n 180 || true
 else
     echo "ANDROID_LOGCAT_MISSING"
 fi

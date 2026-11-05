@@ -152,9 +152,9 @@ The latest run reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`. The
 32-bit BoringSSL self-test passed and both private Binder device paths open.
 `zygote` started and accepted connections, but `ANDROID_BOOT_NOT_COMPLETED`
 remains. The debug console's no-controlling-tty warning is expected; status
-124 is the probe's 45-second timeout. Logcat identifies `lmkd`'s remaining
-restart cause: PSI monitor access returns `EACCES`, and this kernel has no
-cgroup-v1 `memory.pressure_level` fallback. Linux restricts unprivileged PSI
+That run's status 124 was the probe's 45-second timeout. Logcat identifies
+`lmkd`'s remaining restart cause: PSI monitor access returns `EACCES`, and
+this kernel has no cgroup-v1 `memory.pressure_level` fallback. Linux restricts unprivileged PSI
 monitors to 2-second-multiple windows, while this Android `lmkd` uses a
 1-second window, so mapping its UID to the PSI file owner cannot solve the
 failure. SurfaceFlinger and several hardware services also fail in this
@@ -173,7 +173,10 @@ sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
 This mode can still affect host kernel state; it is a diagnostic, not a safe
-daily runtime. It has not been run yet.
+daily runtime. It has been run once. `system_server` started, with no `lmkd`
+restart reported, but the 45-second run ended before boot completion.
+`system_server` logged PSI trigger `EINVAL`, and SurfaceFlinger crashed. The
+probe now allows 120 seconds and includes those tags in the log summary.
 
 The plain probe process uses the host's `unconfined_t` SELinux domain;
 Android's SELinux policy is not loaded into the shared host kernel. Init also
