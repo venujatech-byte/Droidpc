@@ -99,6 +99,8 @@ if [ -n "$render_node" ]; then
             return 1
         fi
     }
+    python3 "$root/scripts/stage-gpu-sysfs.py" "$tmp/gpu-sys" \
+        renderD128 ${drm_card_name:+"$drm_card_name"}
     prepare_drm_node renderD128
     if [ -n "$drm_card_name" ]; then
         prepare_drm_node "$drm_card_name"
@@ -365,6 +367,12 @@ set -- "$@" \
         --bind "$tmp/data" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig
+if [ -n "$render_node" ]; then
+    for subtree in dev devices bus class; do
+        set -- "$@" --ro-bind "$tmp/gpu-sys/$subtree" \
+            "/sys/$subtree"
+    done
+fi
 set -- "$@" --chdir / /system/bin/init second_stage
 if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" = 1 ]; then
     echo "WARNING: Android init has host-level capabilities inside private namespaces."
