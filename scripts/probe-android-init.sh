@@ -7,6 +7,11 @@ if [ "$(id -u)" -ne 0 ] || [ -z "${SUDO_USER:-}" ]; then
     exit 1
 fi
 
+case "${DROIDPC_PROBE_HOST_CAPS:-0}" in
+    0|1) ;;
+    *) echo "DROIDPC_PROBE_HOST_CAPS must be 0 or 1" >&2; exit 1 ;;
+esac
+
 if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
     echo "Could not set the probe's locked-memory limit to 1 GiB" >&2
     exit 1
@@ -40,8 +45,12 @@ if ! grep -q '^uevent_socket_rcvbuf_size 256K$' "$tmp/ueventd.rc"; then
     exit 1
 fi
 debugfs -R 'cat /system/etc/init/lmkd.rc' "$system" 2>/dev/null \
-    | sed 's/^    user lmkd$/    user root/' > "$tmp/lmkd.rc"
-if ! grep -q '^    user root$' "$tmp/lmkd.rc"; then
+    > "$tmp/lmkd.rc"
+if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" != 1 ]; then
+    sed 's/^    user lmkd$/    user root/' "$tmp/lmkd.rc" > "$tmp/lmkd-root.rc"
+    mv "$tmp/lmkd-root.rc" "$tmp/lmkd.rc"
+fi
+if ! grep -q '^    user ' "$tmp/lmkd.rc"; then
     echo "Could not prepare temporary lmkd service configuration" >&2
     exit 1
 fi
@@ -135,15 +144,18 @@ mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
-set -- /usr/bin/unshare --user \
-    --map-users=0:0:65536 \
-    --map-groups=0:0:65536 \
-    --setgroups=allow --setuid=0 --setgid=0 \
-    /usr/bin/bwrap \
+set -- /usr/bin/bwrap \
         --unshare-pid --unshare-ipc --unshare-uts \
         --unshare-net --unshare-cgroup \
         --die-with-parent --as-pid-1 \
-        --clearenv --cap-add ALL \
+        --clearenv --cap-add ALL
+if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" = 1 ]; then
+    set -- "$@" \
+        --cap-drop CAP_SYS_BOOT --cap-drop CAP_SYS_MODULE \
+        --cap-drop CAP_SYS_RAWIO --cap-drop CAP_SYS_TIME \
+        --cap-drop CAP_SYS_PTRACE
+fi
+set -- "$@" \
         --ro-bind "$tmp/system" / \
         --ro-bind "$tmp/init.rc" /system/etc/init/hw/init.rc \
         --ro-bind "$tmp/lmkd.rc" /system/etc/init/lmkd.rc \
@@ -167,6 +179,15 @@ set -- /usr/bin/unshare --user \
         --tmpfs /linkerconfig \
         --chdir / \
         /system/bin/init second_stage
+if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" = 1 ]; then
+    echo "WARNING: Android init has host-level capabilities inside private namespaces."
+else
+    set -- /usr/bin/unshare --user \
+        --map-users=0:0:65536 \
+        --map-groups=0:0:65536 \
+        --setgroups=allow --setuid=0 --setgid=0 \
+        "$@"
+fi
 if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
     set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
 fi

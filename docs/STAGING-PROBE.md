@@ -315,9 +315,13 @@ unprivileged PSI monitors to 2-second-multiple windows, whereas Android
 `lmkd` uses a 1-second window. Mapping `lmkd` to the PSI file owner would
 therefore not solve the monitor failure. The current user namespace cannot
 grant the required host-level `CAP_SYS_RESOURCE`; the next step needs a
-different runtime/kernel boundary. The lmkd/zygote overrides and 1 GiB
-memlock limit affect only the temporary probe configuration; the host's
-global limit is unchanged.
+different runtime/kernel boundary. An opt-in mode is available with
+`sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh`;
+it keeps non-user namespaces private and drops host reboot, module-loading,
+raw-I/O, time-setting, and ptrace capabilities. It still grants host
+`CAP_SYS_ADMIN`, so run it only on a disposable host. This mode has not been
+run. The lmkd/zygote overrides and 1 GiB memlock limit affect only the
+temporary probe configuration; the host's global memlock limit is unchanged.
 
 The first PID 1 run exited with status 129 before `early-init`: init aborted
 because the empty private `/dev` lacked `/dev/null`. The probe now uses

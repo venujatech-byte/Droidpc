@@ -162,11 +162,24 @@ headless container. Further progress requires host-level `CAP_SYS_RESOURCE`
 or a different runtime/kernel boundary; the current user-namespace probe
 cannot grant that capability.
 
+An opt-in diagnostic can run Android init in the host user namespace while
+keeping its mount, PID, IPC, UTS, network, and cgroup namespaces private. It
+drops host reboot, module-loading, raw-I/O, time-setting, and ptrace
+capabilities, but retains `CAP_SYS_ADMIN` for Android mounts and
+`CAP_SYS_RESOURCE` for PSI. Run it only on a disposable host:
+
+```sh
+sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
+```
+
+This mode can still affect host kernel state; it is a diagnostic, not a safe
+daily runtime. It has not been run yet.
+
 The plain probe process uses the host's `unconfined_t` SELinux domain;
 Android's SELinux policy is not loaded into the shared host kernel. Init also
 logs permission failures while setting ownership and mode on
-`/proc/pressure/memory`. The diagnostic wrapper below tests whether that
-blocks `lmkd` by temporarily running that service as Android root.
+`/proc/pressure/memory`. The default diagnostic wrapper temporarily runs
+`lmkd` as Android root inside the user namespace.
 The `console:/ $` prompt and “No controlling tty” warning come from the image's
 debug console service; they do not mean `sys.boot_completed=1`.
 
