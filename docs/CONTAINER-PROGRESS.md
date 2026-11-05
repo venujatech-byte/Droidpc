@@ -98,6 +98,13 @@ both exposed PCI vendor `0x8086` through the staged discovery links. Every
 snapshot symlink resolved inside the temporary snapshot. This validates
 snapshot construction on the actual GPU, not Mesa initialization or boot.
 
+Host libdrm was also exercised inside an unprivileged Bubblewrap sandbox,
+with the snapshot bound read-only at `/sys` and the real host device nodes
+visible. `drmGetDevices2` returned exactly one GPU. A negative control with
+an empty `/sys` returned zero GPUs. This establishes actual host-library
+device discovery with the snapshot; the Android vendor library and Mesa
+initialization still require the guest boot run.
+
 The next host boot run should use the current probe, which includes the PCI
 GPU sysfs snapshot, private graphics-group device nodes, matched primary card,
 and correct vendor allocator property:
