@@ -243,6 +243,18 @@ presentation now pass in supplied runs. Reliable repeated boots, enforcing
 SELinux, cgroup delegation, and a production start/stop lifecycle remain
 required before calling this a working container.
 
+If Android stalls while services repeatedly wait for SurfaceFlinger, leave the
+window open and collect the graphics startup messages and native stacks:
+
+```sh
+sudo ./scripts/diagnose-android-graphics.sh
+```
+
+The command identifies the guest by its Droidpc helper file, excludes repeated
+service lookups, and bounds each native stack request to 15 seconds. It does
+not restart graphics services or alter Android data. A running process alone
+does not establish that SurfaceFlinger has registered its Binder service.
+
 Common output meanings:
 
 | Output | Meaning |
