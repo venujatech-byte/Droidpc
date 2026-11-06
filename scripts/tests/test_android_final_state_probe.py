@@ -8,6 +8,15 @@ from pathlib import Path
 
 
 class FinalStateProbeTests(unittest.TestCase):
+    def test_vendor_namespace_is_set_before_init_configuration_uses_it(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+
+        self.assertLess(
+            source.index('vendor_namespace=$(sed'),
+            source.index('read-profile.sh $vendor_namespace'),
+        )
+
     def test_window_fifo_collision_retries_without_removing_existing_path(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()

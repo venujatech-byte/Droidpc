@@ -444,6 +444,13 @@ while read -r action a b c d duration; do
 done < /data/droidpc-input.pipe
 SH
 fi
+/usr/bin/python3 "$root/scripts/prepare_android_vendor_properties.py" \
+    "$vendor" "$SUDO_USER" "$(id -u "$SUDO_USER")" \
+    "$(id -g "$SUDO_USER")" "$tmp/vendor-properties.prop" \
+    > "$tmp/vendor-property-info"
+vendor_namespace=$(sed -n '1p' "$tmp/vendor-property-info")
+vendor_property_path=$(sed -n '2p' "$tmp/vendor-property-info")
+
 printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
@@ -521,12 +528,6 @@ else
         'ro.hardware.vulkan=pastel' >> "$tmp/system-build.prop"
 fi
 printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
-/usr/bin/python3 "$root/scripts/prepare_android_vendor_properties.py" \
-    "$vendor" "$SUDO_USER" "$(id -u "$SUDO_USER")" \
-    "$(id -g "$SUDO_USER")" "$tmp/vendor-properties.prop" \
-    > "$tmp/vendor-property-info"
-vendor_namespace=$(sed -n '1p' "$tmp/vendor-property-info")
-vendor_property_path=$(sed -n '2p' "$tmp/vendor-property-info")
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
