@@ -205,7 +205,8 @@ The guest graphics composer uses the host Wayland socket. Closing the viewer
 or pressing Ctrl+C stops the guest. Data remains under
 `~/.local/share/droidpc-probe/data`. Startup prints viewer and capture log paths;
 the window shows a waiting message or capture error instead of an empty black
-screen. This remains the host-capability diagnostic, not the production runtime.
+screen. Capture starts when SurfaceFlinger runs, so boot animation and startup
+frames can appear before Android completes boot. This remains the host-capability diagnostic, not the production runtime.
 
 The previous screenshot viewer is available for recovery:
 

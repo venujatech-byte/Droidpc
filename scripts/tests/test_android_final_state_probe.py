@@ -90,6 +90,13 @@ key 4; touch {injection_marker}
             ])
             self.assertFalse(injection_marker.exists())
 
+    def test_capture_starts_with_surfaceflinger_before_boot_completion(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        self.assertIn('on property:init.svc.surfaceflinger=running\n    start droidpc-screen', source)
+        self.assertIn('service droidpc-screen /system/bin/sh /tmp/droidpc-stream-screen.sh', source)
+        self.assertNotIn('exec_background -- /system/bin/sh /tmp/droidpc-stream-screen.sh', source)
+
     def test_window_capture_replaces_frame_with_completed_screenshot(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()

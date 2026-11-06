@@ -537,8 +537,15 @@ on property:sys.boot_completed=1
     exec_background -- /system/bin/sh /tmp/droidpc-read-input.sh
 RC
     cat >> "$tmp/probe.rc" <<'RC'
-on property:sys.boot_completed=1
-    exec_background -- /system/bin/sh /tmp/droidpc-stream-screen.sh
+service droidpc-screen /system/bin/sh /tmp/droidpc-stream-screen.sh
+    class core
+    disabled
+    user root
+    group root
+    restart_period 2
+
+on property:init.svc.surfaceflinger=running
+    start droidpc-screen
 RC
     cat >> "$tmp/probe.rc" <<'RC'
 on property:sys.boot_completed=1
