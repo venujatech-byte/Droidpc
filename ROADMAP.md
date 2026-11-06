@@ -32,7 +32,6 @@ these issues before implementing the affected sections:
   Select a compatible container image, guest init configuration, graphics
   allocator, Hardware Composer, and host integration together. Start from
   existing working guest components where their licenses permit reuse.
-  [Android guest build documentation][images] describes its image build setup.
 - Binderfs needs device allocation through `BINDER_CTL_ADD`; mounting it
   and adding symlinks alone is insufficient. See [kernel documentation][binder].
 - Keep persistent Android `/data` separate from system overlay changes.
@@ -233,7 +232,6 @@ applicable once Cargo manifests exist. Never count unrun checks as passed.
 First lesson: collect the phase 0 host facts and select the initial app set.
 No container setup, dependencies, or privileged commands are needed today.
 
-[images]: https://docs.example.invalid/development/compile-android_guest-lineage-os-based-images
 [binder]: https://docs.kernel.org/6.0/admin-guide/binderfs.html
 [drop]: https://doc.rust-lang.org/reference/destructors.html
 [hwc]: https://source.android.com/docs/core/graphics/implement-hwc

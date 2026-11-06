@@ -11,6 +11,10 @@ case "${DROIDPC_PROBE_HOST_CAPS:-0}" in
     0|1) ;;
     *) echo "DROIDPC_PROBE_HOST_CAPS must be 0 or 1" >&2; exit 1 ;;
 esac
+case "${DROIDPC_PROBE_WINDOW:-0}" in
+    0|1) ;;
+    *) echo "DROIDPC_PROBE_WINDOW must be 0 or 1" >&2; exit 1 ;;
+esac
 
 if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
     echo "Could not set the probe's locked-memory limit to 1 GiB" >&2
@@ -25,7 +29,6 @@ fi
 root=$(pwd -P)
 system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
-tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
 render_node=
 drm_card_name=
 if [ -c /dev/dri/renderD128 ]; then
@@ -44,9 +47,21 @@ fi
 wayland_display=${WAYLAND_DISPLAY:-wayland-0}
 wayland_socket=
 guest_runtime_dir=/run/user/$(id -u "$SUDO_USER")
-guest_runtime_path=${guest_runtime_dir#/run/}
+viewer_pid=
+gst_pid=
+guest_pid=
+monitor_pid=
+stream_fifo=
+input_fifo=
+frame_dir=
 case "$wayland_display" in
-    ''|*/*) ;;
+    '') ;;
+    /*)
+        if [ -S "$wayland_display" ]; then
+            wayland_socket=$wayland_display
+        fi
+        ;;
+    */*) ;;
     *)
         runtime_dir=/run/user/$(id -u "$SUDO_USER")
         if [ -S "$runtime_dir/$wayland_display" ]; then
@@ -63,16 +78,142 @@ case "$wayland_display" in
         ;;
 esac
 
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" != 1 ] \
+        || [ -z "$render_node" ] || [ -z "$wayland_socket" ]; then
+        echo "Window mode requires host caps, DRM and a Wayland socket" >&2
+        exit 1
+    fi
+    command -v gst-launch-1.0 >/dev/null || {
+        echo "Window mode requires gst-launch-1.0" >&2
+        exit 1
+    }
+    command -v gst-inspect-1.0 >/dev/null || {
+        echo "Window mode requires gst-inspect-1.0" >&2
+        exit 1
+    }
+    for plugin in h264parse avdec_h264 videoconvert videorate jpegenc multifilesink; do
+        if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
+            echo "Window mode requires the GStreamer $plugin plugin" >&2
+            exit 1
+        fi
+    done
+    /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
+        echo "Window mode requires Python GTK 3 bindings" >&2
+        exit 1
+    }
+    command -v runuser >/dev/null || {
+        echo "Window mode requires runuser" >&2
+        exit 1
+    }
+    command -v setsid >/dev/null || {
+        echo "Window mode requires setsid" >&2
+        exit 1
+    }
+    user_home=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    case "$user_home" in
+        /*) ;;
+        *) echo "Could not resolve the Android data owner home" >&2; exit 1 ;;
+    esac
+    user_home=$(realpath "$user_home")
+    data_parent=$(realpath -m "$user_home/.local/share/droidpc-probe")
+    case "$data_parent/" in
+        "$user_home/"*) ;;
+        *) echo "Android data path resolves outside the user's home" >&2; exit 1 ;;
+    esac
+    # Preserve guest app state between foreground window sessions.
+    data_dir=$data_parent/data
+else
+    data_dir=
+fi
+tmp=$(mktemp -d /tmp/droidpc-init.XXXXXX)
+if [ -z "$data_dir" ]; then
+    data_dir=$tmp/data
+fi
+
 cleanup() {
+    if [ -n "$monitor_pid" ]; then
+        kill -TERM "$monitor_pid" 2>/dev/null || true
+        wait "$monitor_pid" 2>/dev/null || true
+        monitor_pid=
+    fi
+    if [ -n "$guest_pid" ]; then
+        kill -TERM "$guest_pid" 2>/dev/null || true
+        wait "$guest_pid" 2>/dev/null || true
+        guest_pid=
+    fi
+    if [ -n "$gst_pid" ]; then
+        kill -TERM -- "-$gst_pid" 2>/dev/null || true
+        wait "$gst_pid" 2>/dev/null || true
+        gst_pid=
+    fi
+    if [ -n "$viewer_pid" ]; then
+        kill -TERM -- "-$viewer_pid" 2>/dev/null || true
+        wait "$viewer_pid" 2>/dev/null || true
+        viewer_pid=
+    fi
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
     umount "$tmp/dri" 2>/dev/null || true
+    if [ -n "$stream_fifo" ]; then
+        rm -f -- "$stream_fifo"
+    fi
+    if [ -n "$input_fifo" ]; then
+        rm -f -- "$input_fifo"
+    fi
+    if [ -n "$frame_dir" ]; then
+        rm -rf -- "$frame_dir"
+    fi
     rm -rf -- "$tmp"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
-mkdir -p "$tmp/sys" "$tmp/sys/fs" "$tmp/data"
+mkdir -p "$tmp/sys" "$tmp/sys/fs"
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    if [ ! -d "$data_dir" ]; then
+        runuser -u "$SUDO_USER" -- mkdir -p "$data_dir"
+    fi
+    if [ ! -d "$data_dir" ] || [ -L "$data_dir" ]; then
+        echo "Android data path is not a real directory" >&2
+        exit 1
+    fi
+    data_dir=$(realpath "$data_dir")
+    case "$data_dir/" in
+        "$user_home/"*) ;;
+        *) echo "Android data path resolves outside the user's home" >&2; exit 1 ;;
+    esac
+else
+    mkdir -p "$data_dir"
+fi
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    frame_dir=$(runuser -u "$SUDO_USER" -- mktemp -d \
+        "$guest_runtime_dir/droidpc-window.XXXXXX")
+    attempt=0
+    while [ "$attempt" -lt 1000 ]; do
+        stream_fifo=$guest_runtime_dir/droidpc-screen-$$-$attempt.pipe
+        input_fifo=$guest_runtime_dir/droidpc-input-$$-$attempt.pipe
+        if mkfifo "$stream_fifo" 2>/dev/null; then
+            if mkfifo "$input_fifo" 2>/dev/null; then
+                break
+            fi
+            rm -f -- "$stream_fifo"
+        fi
+        stream_fifo=
+        input_fifo=
+        attempt=$((attempt + 1))
+    done
+    if [ -z "$stream_fifo" ] || [ -z "$input_fifo" ]; then
+        echo "Could not create unique Android window FIFOs" >&2
+        exit 1
+    fi
+    chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" \
+        "$stream_fifo" "$input_fifo"
+    chmod 0600 "$stream_fifo" "$input_fifo"
+fi
 if [ -n "$render_node" ]; then
     mkdir "$tmp/dri"
     mount -t tmpfs -o mode=0755 tmpfs "$tmp/dri"
@@ -105,11 +246,6 @@ if [ -n "$render_node" ]; then
     if [ -n "$drm_card_name" ]; then
         prepare_drm_node "$drm_card_name"
     fi
-fi
-if [ -n "$wayland_socket" ]; then
-    mkdir -p "$tmp/run/$guest_runtime_path"
-    touch "$tmp/run/$guest_runtime_path/$wayland_display"
-    chmod 0755 "$tmp/run" "$tmp/run/user" "$tmp/run/$guest_runtime_path"
 fi
 touch "$tmp/kmsg"
 debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
@@ -198,9 +334,10 @@ getprop ro.hardware.egl > /data/droidpc-hardware-egl
 getprop ro.hardware.gralloc > /data/droidpc-hardware-gralloc
 getprop ro.hardware.vulkan > /data/droidpc-hardware-vulkan
 getprop sys.use_memfd > /data/droidpc-use-memfd
-getprop android_guest.stub_sensors_hal > /data/droidpc-stub-sensors-hal
-getprop android_guest.host.uid > /data/droidpc-host-uid
-getprop android_guest.host.gid > /data/droidpc-host-gid
+vendor_namespace=$1
+getprop "$vendor_namespace.stub_sensors_hal" > /data/droidpc-stub-sensors-hal
+getprop "$vendor_namespace.host.uid" > /data/droidpc-host-uid
+getprop "$vendor_namespace.host.gid" > /data/droidpc-host-gid
 cat /proc/1/uid_map > /data/droidpc-uid-map
 cat /proc/1/gid_map > /data/droidpc-gid-map
 SH
@@ -267,7 +404,46 @@ if [ "$(getprop sys.boot_completed)" != 1 ] && [ -n "$server_pid" ]; then
     fi
 fi
 capture_state Final
+if [ "$(getprop sys.boot_completed)" = 1 ]; then
+    if /system/bin/screencap -p /data/droidpc-screenshot.png; then
+        echo 'SCREEN_CAPTURE_OK' >> "$report"
+    else
+        echo 'SCREEN_CAPTURE_FAILED' >> "$report"
+    fi
+else
+    echo 'SCREEN_CAPTURE_SKIPPED_BOOT_INCOMPLETE' >> "$report"
+fi
 SH
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    cat > "$tmp/stream-screen.sh" <<'SH'
+#!/system/bin/sh
+exec >/data/droidpc-screen.pipe
+while true; do
+    /system/bin/screenrecord --output-format=h264 --bit-rate 4000000 - || sleep 1
+done
+SH
+    cat > "$tmp/read-input.sh" <<'SH'
+#!/system/bin/sh
+while read -r action a b c d duration; do
+    case "$action" in
+        tap)
+            case "$a:$b" in *[!0-9:]*|:*|*:) continue ;; esac
+            /system/bin/input tap "$a" "$b"
+            ;;
+        swipe)
+            case "$a:$b:$c:$d:$duration" in
+                *[!0-9:]*|:*|*::*|*:) continue ;;
+            esac
+            /system/bin/input swipe "$a" "$b" "$c" "$d" "$duration"
+            ;;
+        key)
+            case "$a" in ''|*[!0-9]*) continue ;; esac
+            /system/bin/input keyevent "$a"
+            ;;
+    esac
+done < /data/droidpc-input.pipe
+SH
+fi
 printf '%s\n' \
     'on early-init' \
     '    write /data/droidpc-early-init PASS' \
@@ -297,7 +473,7 @@ printf '%s\n' \
     '    chown 10108 10108 /data/droidpc-drm-systemui-access' \
     '    exec - 10108 10108 -- /system/bin/sh /tmp/droidpc-read-drm.sh /data/droidpc-drm-systemui-access' \
     '    task_profiles HighPerformance' \
-    '    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh' \
+    "    exec -- /system/bin/sh /tmp/droidpc-read-profile.sh $vendor_namespace" \
     '    exec_background -- /system/bin/sh /tmp/droidpc-read-final-state.sh' \
     'on property:init.svc.logd=running' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-capture-logcat.sh' \
@@ -308,6 +484,16 @@ printf '%s\n' \
     'on property:sys.boot_completed=1' \
     '    write /data/droidpc-boot-completed PASS' \
     > "$tmp/probe.rc"
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    cat >> "$tmp/probe.rc" <<'RC'
+on property:sys.boot_completed=1
+    exec_background -- /system/bin/sh /tmp/droidpc-read-input.sh
+RC
+    cat >> "$tmp/probe.rc" <<'RC'
+on property:sys.boot_completed=1
+    exec_background -- /system/bin/sh /tmp/droidpc-stream-screen.sh
+RC
+fi
 
 debugfs -R 'cat /system/etc/init/hw/init.rc' "$system" \
     2>/dev/null > "$tmp/init.rc"
@@ -335,13 +521,12 @@ else
         'ro.hardware.vulkan=pastel' >> "$tmp/system-build.prop"
 fi
 printf '%s\n' 'androidboot.mode=normal' > "$tmp/cmdline"
-host_uid=$(id -u "$SUDO_USER")
-host_gid=$(id -g "$SUDO_USER")
-printf '%s\n' \
-    "android_guest.host.user=$SUDO_USER" \
-    "android_guest.host.uid=$host_uid" \
-    "android_guest.host.gid=$host_gid" \
-    'android_guest.stub_sensors_hal=1' > "$tmp/vendor-android_guest.prop"
+/usr/bin/python3 "$root/scripts/prepare_android_vendor_properties.py" \
+    "$vendor" "$SUDO_USER" "$(id -u "$SUDO_USER")" \
+    "$(id -g "$SUDO_USER")" "$tmp/vendor-properties.prop" \
+    > "$tmp/vendor-property-info"
+vendor_namespace=$(sed -n '1p' "$tmp/vendor-property-info")
+vendor_property_path=$(sed -n '2p' "$tmp/vendor-property-info")
 
 mount -t ext4 -o loop,ro,norecovery "$system" "$tmp/system"
 mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
@@ -367,18 +552,17 @@ set -- "$@" \
         --ro-bind "$tmp/zygote.rc" /system/etc/init/hw/init.zygote64_32.rc \
         --ro-bind "$tmp/ueventd.rc" /system/etc/ueventd.rc \
         --ro-bind "$tmp/vendor" /vendor \
-        --ro-bind "$tmp/vendor-android_guest.prop" /vendor/android_guest.prop \
+        --ro-bind "$tmp/vendor-properties.prop" "$vendor_property_path" \
         --proc /proc --dev /dev \
         --dir /dev/socket --tmpfs /tmp
 if [ -n "$render_node" ]; then
     # Regular binds/remount-ro add nodev; these are disposable guest nodes.
     set -- "$@" --dir /dev/dri --dev-bind "$tmp/dri" /dev/dri
 fi
-if [ -n "$wayland_socket" ]; then
-    set -- "$@" \
-        --bind "$tmp/run" /run \
-        --ro-bind "$wayland_socket" "$guest_runtime_dir/$wayland_display" \
-        --setenv WAYLAND_DISPLAY "$wayland_display"
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    set -- "$@" --ro-bind "$tmp/stream-screen.sh" \
+        /tmp/droidpc-stream-screen.sh \
+        --ro-bind "$tmp/read-input.sh" /tmp/droidpc-read-input.sh
 fi
 set -- "$@" \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
@@ -392,9 +576,14 @@ set -- "$@" \
         --bind "$tmp/proc-sys" /proc/sys \
         --bind "$tmp/sys" /sys \
         --bind "$tmp/kmsg" /dev/kmsg \
-        --bind "$tmp/data" /data --tmpfs /mnt \
+        --bind "$data_dir" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    set -- "$@" \
+        --bind "$stream_fifo" /data/droidpc-screen.pipe \
+        --bind "$input_fifo" /data/droidpc-input.pipe
+fi
 if [ -n "$render_node" ]; then
     for subtree in dev devices bus class; do
         set -- "$@" --ro-bind "$tmp/gpu-sys/$subtree" \
@@ -414,7 +603,57 @@ fi
 if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
     set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
 fi
-timeout --signal=TERM --kill-after=2s 180s "$@" || status=$?
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    setsid runuser -u "$SUDO_USER" -- env \
+        XDG_RUNTIME_DIR="$guest_runtime_dir" \
+        WAYLAND_DISPLAY="$wayland_display" \
+        gst-launch-1.0 -q filesrc location="$stream_fifo" \
+        '!' h264parse '!' avdec_h264 '!' videoconvert '!' videorate \
+        '!' 'video/x-raw,framerate=10/1' '!' jpegenc quality=80 \
+        '!' multifilesink \
+        location="$frame_dir/frame-%08d.jpg" max-files=2 sync=false \
+        > "$tmp/gstreamer.log" 2>&1 &
+    gst_pid=$!
+    setsid runuser -u "$SUDO_USER" -- env \
+        XDG_RUNTIME_DIR="$guest_runtime_dir" \
+        WAYLAND_DISPLAY="$wayland_display" \
+        /usr/bin/python3 "$root/scripts/android-window.py" \
+        "$frame_dir/frame-*.jpg" "$input_fifo" \
+        > "$tmp/window.log" 2>&1 &
+    viewer_pid=$!
+    sleep 1
+    if ! kill -0 "$gst_pid" 2>/dev/null \
+        || ! kill -0 "$viewer_pid" 2>/dev/null; then
+        cat "$tmp/gstreamer.log" "$tmp/window.log" >&2
+        echo "Could not start the Android display window" >&2
+        exit 1
+    fi
+    echo "Android window active; click to tap, drag to swipe, use keyboard navigation."
+    echo "Guest data is stored at $data_dir."
+    echo "Press Ctrl-C here to stop the guest."
+    "$@" &
+    guest_pid=$!
+    (
+        while kill -0 "$guest_pid" 2>/dev/null; do
+            if ! kill -0 "$gst_pid" 2>/dev/null \
+                || ! kill -0 "$viewer_pid" 2>/dev/null; then
+                echo "Android display process exited; stopping the guest." >&2
+                tail -n 80 "$tmp/gstreamer.log" "$tmp/window.log" >&2
+                kill -TERM "$guest_pid" 2>/dev/null || true
+                break
+            fi
+            sleep 1
+        done
+    ) &
+    monitor_pid=$!
+    wait "$guest_pid" || status=$?
+    guest_pid=
+    kill -TERM "$monitor_pid" 2>/dev/null || true
+    wait "$monitor_pid" 2>/dev/null || true
+    monitor_pid=
+else
+    timeout --signal=TERM --kill-after=2s 180s "$@" || status=$?
+fi
 
 echo "INIT_PROBE_STATUS=$status"
 if [ -n "$render_node" ]; then
@@ -433,62 +672,62 @@ if [ -n "$wayland_socket" ]; then
 else
     echo "HOST_WAYLAND_SOCKET_MISSING"
 fi
-if [ -s "$tmp/data/droidpc-early-init" ]; then
+if [ -s "$data_dir/droidpc-early-init" ]; then
     echo "INIT_EARLY_INIT_OK"
 else
     echo "INIT_EARLY_INIT_MISSING"
 fi
-if [ -s "$tmp/data/droidpc-init-trigger" ]; then
+if [ -s "$data_dir/droidpc-init-trigger" ]; then
     echo "INIT_TRIGGER_OK"
 else
     echo "INIT_TRIGGER_MISSING"
 fi
-if [ -s "$tmp/data/droidpc-mounts" ]; then
+if [ -s "$data_dir/droidpc-mounts" ]; then
     echo "--- Guest cgroup mounts ---"
     awk '$3 == "cgroup" || $3 == "cgroup2" { print }' \
-        "$tmp/data/droidpc-mounts"
+        "$data_dir/droidpc-mounts"
 else
     echo "GUEST_MOUNT_LIST_MISSING"
 fi
 for name in controllers enabled; do
-    if [ -f "$tmp/data/droidpc-$name" ]; then
+    if [ -f "$data_dir/droidpc-$name" ]; then
         printf 'GUEST_CGROUP_%s=' "$name"
-        cat "$tmp/data/droidpc-$name"
+        cat "$data_dir/droidpc-$name"
         printf '\n'
     else
         echo "GUEST_CGROUP_${name}_MISSING"
     fi
 done
-if [ -f "$tmp/data/droidpc-devices" ]; then
+if [ -f "$data_dir/droidpc-devices" ]; then
     echo "--- Guest /dev entries ---"
-    cat "$tmp/data/droidpc-devices"
-    if [ -f "$tmp/data/droidpc-dri-devices" ]; then
+    cat "$data_dir/droidpc-devices"
+    if [ -f "$data_dir/droidpc-dri-devices" ]; then
         echo "--- Guest DRM devices ---"
-        cat "$tmp/data/droidpc-dri-devices"
+        cat "$data_dir/droidpc-dri-devices"
     fi
-    if [ -f "$tmp/data/droidpc-drm-access" ]; then
+    if [ -f "$data_dir/droidpc-drm-access" ]; then
         echo "--- Android system user DRM access ---"
-        cat "$tmp/data/droidpc-drm-access"
+        cat "$data_dir/droidpc-drm-access"
     fi
     for app in launcher systemui; do
-        if [ -f "$tmp/data/droidpc-drm-$app-access" ]; then
+        if [ -f "$data_dir/droidpc-drm-$app-access" ]; then
             echo "--- Android $app DRM access ---"
-            cat "$tmp/data/droidpc-drm-$app-access"
+            cat "$data_dir/droidpc-drm-$app-access"
         fi
     done
 else
     echo "GUEST_DEVICE_LIST_MISSING"
 fi
-if [ -f "$tmp/data/droidpc-binder" ]; then
+if [ -f "$data_dir/droidpc-binder" ]; then
     echo "--- Guest Binder access ---"
-    cat "$tmp/data/droidpc-binder"
+    cat "$data_dir/droidpc-binder"
 else
     echo "GUEST_BINDER_CHECK_MISSING"
 fi
-if [ -f "$tmp/data/droidpc-boringssl-status" ]; then
+if [ -f "$data_dir/droidpc-boringssl-status" ]; then
     printf 'BORINGSSL_SELF_TEST32_STATUS='
-    cat "$tmp/data/droidpc-boringssl-status"
-    cat "$tmp/data/droidpc-boringssl"
+    cat "$data_dir/droidpc-boringssl-status"
+    cat "$data_dir/droidpc-boringssl"
 else
     echo "BORINGSSL_SELF_TEST32_DIAGNOSTIC_MISSING"
 fi
@@ -498,17 +737,17 @@ if grep -q "Command 'task_profiles HighPerformance'.*failed" \
 else
     echo "TASK_PROFILE_ACTION_NO_FAILURE_REPORTED"
 fi
-if [ -f "$tmp/data/droidpc-profile-cgroup" ]; then
+if [ -f "$data_dir/droidpc-profile-cgroup" ]; then
     printf 'GUEST_INIT_CGROUP='
-    cat "$tmp/data/droidpc-profile-cgroup"
+    cat "$data_dir/droidpc-profile-cgroup"
 else
     echo "GUEST_INIT_CGROUP_MISSING"
 fi
 for name in bootmode crypto-state; do
     label=$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')
     printf 'GUEST_%s=' "$label"
-    if [ -f "$tmp/data/droidpc-$name" ]; then
-        cat "$tmp/data/droidpc-$name"
+    if [ -f "$data_dir/droidpc-$name" ]; then
+        cat "$data_dir/droidpc-$name"
     else
         echo "UNAVAILABLE"
     fi
@@ -517,42 +756,51 @@ for name in lcd-density hardware-egl hardware-gralloc hardware-vulkan \
     use-memfd stub-sensors-hal host-uid host-gid; do
     label=$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')
     printf 'GUEST_%s=' "$label"
-    if [ -f "$tmp/data/droidpc-$name" ]; then
-        cat "$tmp/data/droidpc-$name"
+    if [ -f "$data_dir/droidpc-$name" ]; then
+        cat "$data_dir/droidpc-$name"
     else
         echo "UNAVAILABLE"
     fi
 done
 for name in uid-map gid-map; do
     printf 'GUEST_%s=' "$(printf '%s' "$name" | tr '[:lower:]-' '[:upper:]_')"
-    if [ -f "$tmp/data/droidpc-$name" ]; then
-        tr '\n' ';' < "$tmp/data/droidpc-$name"
+    if [ -f "$data_dir/droidpc-$name" ]; then
+        tr '\n' ';' < "$data_dir/droidpc-$name"
         printf '\n'
     else
         echo UNAVAILABLE
     fi
 done
-if [ -f "$tmp/data/droidpc-final-state" ]; then
+if [ -f "$data_dir/droidpc-final-state" ]; then
     echo "--- Guest final boot/service state ---"
-    cat "$tmp/data/droidpc-final-state"
+    cat "$data_dir/droidpc-final-state"
 else
     echo "GUEST_FINAL_STATE_UNAVAILABLE"
 fi
-if [ -f "$tmp/data/droidpc-system-server-backtrace" ]; then
-    echo "--- Bounded SystemServer backtrace (first 160 lines) ---"
-    sed -n '1,160p' "$tmp/data/droidpc-system-server-backtrace"
+if [ -s "$data_dir/droidpc-screenshot.png" ]; then
+    screenshot=$(mktemp --suffix=.png /tmp/droidpc-screen.XXXXXX)
+    cp "$data_dir/droidpc-screenshot.png" "$screenshot"
+    chown "$SUDO_USER" "$screenshot"
+    chmod 0600 "$screenshot"
+    echo "ANDROID_SCREENSHOT=$screenshot"
+else
+    echo "ANDROID_SCREENSHOT_MISSING"
 fi
-if [ -s "$tmp/data/droidpc-charger-trigger" ]; then
+if [ -f "$data_dir/droidpc-system-server-backtrace" ]; then
+    echo "--- Bounded SystemServer backtrace (first 160 lines) ---"
+    sed -n '1,160p' "$data_dir/droidpc-system-server-backtrace"
+fi
+if [ -s "$data_dir/droidpc-charger-trigger" ]; then
     echo "CHARGER_TRIGGERED"
 else
     echo "CHARGER_NOT_TRIGGERED"
 fi
-if [ -s "$tmp/data/droidpc-late-init-trigger" ]; then
+if [ -s "$data_dir/droidpc-late-init-trigger" ]; then
     echo "LATE_INIT_TRIGGERED"
 else
     echo "LATE_INIT_NOT_TRIGGERED"
 fi
-if [ -s "$tmp/data/droidpc-boot-completed" ]; then
+if [ -s "$data_dir/droidpc-boot-completed" ]; then
     echo "ANDROID_BOOT_COMPLETED"
 else
     echo "ANDROID_BOOT_NOT_COMPLETED"
@@ -561,10 +809,10 @@ echo "--- Android init log (start) ---"
 sed -n '1,80p' "$tmp/kmsg"
 echo "--- Android init log (recent) ---"
 tail -n 120 "$tmp/kmsg"
-if [ -f "$tmp/data/droidpc-logcat" ]; then
+if [ -f "$data_dir/droidpc-logcat" ]; then
     echo "--- Android logcat failures ---"
     grep -E -i 'lmkd|lowmemorykiller|lowmemdetector|psi|memory pressure|bpfloader|zygote|system_server|systemserver|SystemServer|ActivityManager|AndroidRuntime|surfaceflinger|incidentd|fatal|crash|boot_completed|DEBUG|signal 11|hwcomposer|composer|gralloc|angle|egl|vulkan|wayland|wl_display' \
-        "$tmp/data/droidpc-logcat" | tail -n 180 || true
+        "$data_dir/droidpc-logcat" | tail -n 180 || true
 else
     echo "ANDROID_LOGCAT_MISSING"
 fi

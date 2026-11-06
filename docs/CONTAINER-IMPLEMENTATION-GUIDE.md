@@ -20,10 +20,10 @@ Read this section before editing anything.
    saves memory. Python probes are developer tools, not runtime architecture.
 4. Keep Linux x86_64 as the initial target, Fedora as the first tested host.
    Do not promise all Linux PCs, 32-bit x86, ARM apps or every graphics driver.
-5. Write original host code. Do not copy/rebrand Android guest's runtime or scripts.
+5. Write original host code. Do not copy or rebrand another runtime or scripts.
    The supplied guest images contain third-party components: retain their
    identities/notices. Our license does not relicense those components.
-6. Never alter the base images, existing Android guest installation, unrelated
+6. Never alter the base images, unrelated installed containers,
    mounts, host security policy or existing application cgroups. Use separate
    Droidpc state. Never run guest init directly on the host.
 7. Inspect callers and tests before each change. No empty future modules,
@@ -424,7 +424,7 @@ This gate still does not start Android init.
 ## 10. Stage D — private Binder devices
 
 Use kernel UAPI headers and [BinderFS documentation][binder]. Do not copy a
-constant from memory, hardcode major/minor numbers or reuse Android guest devices.
+constant from memory, hardcode major/minor numbers or reuse other runtime devices.
 
 Implement `binder.rs` to own a private BinderFS instance. Its initial
 `binder-control` device is an allocator. Issue the real `BINDER_CTL_ADD`
@@ -453,7 +453,7 @@ Fill this table in the progress file before starting init:
 | Which task profiles are required during startup? | Guest services plus logs |
 | How are v1 actions represented on v2? | Working semantics, not fake files |
 | What is the guest `host` UID/GID? | Definition and a tested mapping |
-| What does `/vendor/android_guest.prop` supply? | Exact read path/order and needed keys |
+| What does the vendor property file supply? | Exact read path/order and needed keys |
 | Which init entry mode applies? | Verified selected-binary/source behavior |
 | How are APEX/linkerconfig initialized? | Selected release's startup sequence |
 | What security permissions are required? | Narrow policy and observed denials |
@@ -581,7 +581,7 @@ owned network state without disrupting the host connection.
 ## 15. Stage I — one visible Android session
 
 First establish the actual guest composer/allocator contract. The image has
-Android guest guest components; do not rename them or invent a replacement host
+vendor guest components; do not rename them or invent a replacement host
 protocol. Determine needed properties, socket paths, credentials, formats
 and synchronization from sources/observations and record them.
 

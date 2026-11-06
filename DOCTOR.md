@@ -14,11 +14,11 @@ existing pair elsewhere:
 
 ```sh
 cargo run -p droidpc-cli -- doctor \
-  --images /var/lib/android_guest/images
+  --images /var/lib/droidpc/images
 ```
 
 The selected directory must contain `system.img` and `vendor.img`. Droidpc
-only reads these files. It does not depend on the Android guest host application.
+only reads these files and does not start a container.
 Paths containing spaces must be quoted.
 
 ## What the report checks

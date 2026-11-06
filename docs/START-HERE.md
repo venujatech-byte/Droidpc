@@ -4,10 +4,10 @@ This is the current beginner guide for Droidpc. It records what we have
 actually tested on the developer's Fedora PC and what we will do next.
 Read it before the older experiment logs in this directory.
 
-**Current status (2026-11-04): Android does not boot yet.** The Rust program
-only has a read-only `doctor` command and image verification code. The
-Android commands in `scripts/` are short, disposable development probes.
-They are not the finished Droidpc container.
+**Current status (2026-11-06): Android can boot and render a captured screen
+in a diagnostic probe.** The experimental window mode can show live frames
+and preserve guest data, but still uses host capabilities. The Rust CLI only
+has a read-only `doctor` command.
 
 ## 1. What are we building?
 
@@ -18,10 +18,10 @@ Windows or macOS. The first milestone is one Android session that boots,
 stops cleanly, and runs an x86_64 app. Desktop windows, audio, game controls,
 and optimization come later, after the base works.
 
-The selected guest is **LineageOS 20 / Android 13 / x86_64**. These particular
-images were built for a Android guest device. They contain third-party guest
-components; Droidpc's host runtime is our own work. Keep image attribution
-and licenses. Do not put the images in Git or change them to fix a probe.
+The selected guest is **LineageOS 20 / Android 13 / x86_64**. The images
+contain third-party guest components; Droidpc's host runtime is our own work.
+Keep image attribution and licenses. Do not put the images in Git or change
+them to fix a probe.
 
 “Every x86 PC” is a goal to investigate, not a present guarantee. The
 current images and Rust target are x86_64; 32-bit x86 Linux has not been
@@ -101,7 +101,7 @@ See [DOCTOR.md](../DOCTOR.md) for the report's exact meanings.
 | User IDs | Guest UID/GID 1000 and `setgroups` worked in a disposable namespace. | All guest accounts map correctly. |
 | Host cgroups | A temporary delegated service accepted CPU, memory and PID controls. | Android uses those controls. |
 | Guest placement | A child cgroup namespace could use an `init` leaf and enable controllers. | Android init is placed there. |
-| Android init | Stock second-stage init ran as PID 1, reached `late-init`, passed the 32-bit BoringSSL test, and opened private Binder devices. | Completed Android boot or app launch. |
+| Android init | A host-capability diagnostic reached boot completion; the captured lock screen confirms visible output. | Persistent session, interactive display, reliable lifecycle. |
 
 The observed guest cgroup2 mount was writable and reported `cpu io memory
 pids` as available. Its `cgroup.subtree_control` was empty. The selected
@@ -146,17 +146,25 @@ listed in [DEVICE-NODES.md](DEVICE-NODES.md). Older next-step notes in those
 logs describe what was next at that time; follow this file for the current
 order.
 
-## 5. Current Android boot blocker
+## 5. Current Android boot and rendering status
 
-The two supplied host-capability runs have different outcomes. The earlier
-run reached `sys.boot_completed=1`; the later run reached framework and
-launcher/SystemUI startup but ended at the 180-second timeout without that
-property. Both reached `INIT_TRIGGER_OK` and `LATE_INIT_TRIGGERED`, opened
-Binder paths, and passed the 32-bit BoringSSL self-test. The later run still
-logged `failed to get driver name for fd -1`; visible rendering and
-package-manager readiness are not established. Its final init log shows
-shutdown after the timeout. The debug console's no-controlling-tty warning is
-expected.
+The latest host-capability probe (2026-11-06) reached
+`sys.boot_completed=1`; SurfaceFlinger, zygote, the graphics allocator and
+HWC were running, and ActivityManager and PackageManager checks succeeded.
+`INIT_PROBE_STATUS=124` is the outer 180-second timeout and occurred after
+Android boot completion. An earlier run did not complete boot, so repeat
+reliability remains to be established. The debug console's no-controlling-TTY
+warning is expected.
+
+In the latest run, Android `system` (UID 1000), launcher (10102) and SystemUI
+(10108) each opened `/dev/dri/card1` and `/dev/dri/renderD128`. This verifies
+device access. The captured screenshot from the subsequent probe shows the
+Android lock screen with status and navigation bars, confirming visible frame
+presentation. The guest saw
+`cpu io memory pids` cgroup controllers, none enabled for children, and PID 1
+remained at `0::/`; cgroup delegation and process placement remain unresolved.
+Host SELinux AVCs for the temporary probe domain were `permissive=1`, so this
+run does not validate an enforcing runtime policy.
 
 This opt-in diagnostic runs init in the host user namespace while keeping
 mount, PID, IPC, UTS, network, and cgroup namespaces private. It drops host
@@ -168,13 +176,33 @@ state; use it only for diagnostics on a disposable host:
 sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
-The run repeatedly logs `incidentd` exits because it requests
+To keep the diagnostic session running in a live Wayland window instead of
+capturing only one screenshot, install GStreamer with `h264parse`,
+`avdec_h264`, `videoconvert`, `videorate`, `jpegenc` and `multifilesink`
+plugins, plus Python GTK 3 bindings, then run:
+
+```sh
+sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
+  ./scripts/probe-android-init-selinux.sh
+```
+
+The window receives an H.264 screen-recording stream from Android, forwards
+clicks as taps, drags as swipes, and basic keyboard navigation. Closing the
+window or pressing Ctrl+C in that terminal stops the guest. Android data is
+preserved under `~/.local/share/droidpc-probe/data`; the startup message prints
+the resolved path. This requires a local DRM render node and Wayland session.
+It still runs the host-capability diagnostic and is for development only.
+
+The run repeatedly logged `incidentd` exits because it requests
 `CAP_SYS_PTRACE`, which this diagnostic intentionally drops. BPF setup also
-reports missing guest bpffs paths. These failures are recorded; they do not
-yet establish why `sys.boot_completed` stays empty. The probe writes an
+reports missing guest bpffs paths. Android nevertheless reached boot
+completion. The probe writes an
 initial boot/service snapshot immediately, then records another after waiting
 up to 90 seconds for boot completion. This preserves framework evidence if
-the outer 180-second timeout stops the run. It checks
+the outer 180-second timeout stops the run. After boot completion it attempts
+`screencap`; a successful image is copied to a mode-0600 `/tmp/droidpc-screen.*.png`
+file and its path is printed. A captured lock screen now confirms visible frame
+presentation. The probe checks
 ActivityManager and package services without dumping unbounded SystemServer
 stacks. If boot remains incomplete and SystemServer is running, it captures a
 backtrace with Android's `debuggerd -b`; the host output is capped at 160
@@ -184,8 +212,17 @@ The host DRM node maps to `card1`; the probe passes that card and a private
 sysfs discovery snapshot alongside `renderD128`. The guest SELinux policy is
 not loaded into the shared host kernel. The temporary host diagnostic domain
 is permissive and removed after the run; it is not a production SELinux
-configuration. `sys.boot_completed=1` and a responsive package manager remain
-required before this can be called a working container.
+configuration. Boot completion, framework service checks, and visible frame
+presentation now pass in supplied runs. Reliable repeated boots, enforcing
+SELinux, cgroup delegation, and a production start/stop lifecycle remain
+required before calling this a working container.
+
+The `DROIDPC_PROBE_WINDOW=1` mode streams Android H.264 screen recording
+through GStreamer into a GTK window and leaves init running until Ctrl-C. The
+viewer forwards basic taps, swipes, and navigation keys through a restricted
+guest input helper. The privileged end-to-end window mode has not yet been
+run. It preserves data under the user's home directory, but still uses the
+same broad diagnostic capabilities and is not the production runtime.
 
 Common output meanings:
 
@@ -221,9 +258,9 @@ probe; never detach a loop device by guessing its number.
 
 ## 6. What we will build next, in order
 
-1. **Reach Android boot completion.** Run the bounded boot probe and find
-   the first fatal service or missing resource if the marker is absent.
-   Keep images read-only and all mounts private.
+1. **Repeat Android boot completion.** The latest bounded probe reached the
+   marker; repeat it and confirm guest resources clean up afterward. Keep
+   images read-only and all mounts private.
 2. **Make a safe guest cgroup layout.** Put Android init in a child group
    of Droidpc's own delegated hierarchy. Determine which Android task
    profiles need cgroup v2 replacements. Do not fake old control files.
@@ -287,7 +324,8 @@ When a probe fails, record the exact command, first meaningful error, and
 whether temporary resources remained. Never “fix” an error by disabling
 SELinux or changing host-wide cgroups.
 
-**Current handoff:** the latest run still lacks `sys.boot_completed`. Use the
-updated bounded snapshot to identify whether ActivityManager and package
-services respond, then resolve that boot blocker before starting the
-production lifecycle work.
+**Current handoff:** the latest probe reached `sys.boot_completed=1`, framework
+services responded, all three tested Android UIDs opened the DRM nodes, and a
+captured lock screen confirms visible output. Next, repeat boot and cleanup,
+validate the Rust stage/BinderFS implementations, and resolve enforcing
+SELinux and cgroup delegation before production lifecycle work.

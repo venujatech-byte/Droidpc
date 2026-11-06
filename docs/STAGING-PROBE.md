@@ -173,8 +173,8 @@ run with the stock init directories masked and system/vendor mounted
 read-only.
 
 **Second-stage property probe (2026-11-04):** init started and logged
-properties loaded from the selected images, including `ro.product.device`
-`android_guest_x86_64` and `ro.product.brand` `android_guest`. It aborted before
+properties loaded from the selected images, including the device and brand
+identifiers. It aborted before
 processing the custom `early-init` action because private `/dev/socket` did
 not exist; property-service socket creation failed. The images remained
 read-only and the probe returned before running the `getprop` helper. A retry
@@ -345,14 +345,14 @@ The next run no longer logged the missing-density error, confirming the
 overlay was read. SurfaceFlinger still crashed: the backtrace ends in the
 vendor `/vendor/lib64/egl/libGLESv2_angle.so` at
 `egl::Thread::getContext()` after a null pointer dereference. The vendor
-`hwcomposer.android_guest.so` service repeatedly exits with status 1. The vendor
+vendor hardware composer service repeatedly exits with status 1. The vendor
 image is Android API 33 and includes
 `vulkan.pastel.so`; its init property handling maps
 `ro.hardware.egl=swiftshader` to ANGLE plus the Pastel software Vulkan driver.
 The run confirms those effective properties (`angle`, `default`, `pastel`),
 and no SurfaceFlinger SIGSEGV appears in the captured log. The composer still
-exits before registering its HIDL service. Its Android guest HWC library connects
-to a Wayland compositor. The probe exposes the host socket in the guest and
+exits before registering its HIDL service. The guest HWC library connects to
+a Wayland compositor. The probe exposes the host socket in the guest and
 captures composer, EGL, Vulkan and Wayland errors. One run reported
 `HOST_WAYLAND_SOCKET_MISSING`; socket detection now searches
 `/run/user/<invoking-uid>/wayland-*` when the requested display socket is
@@ -372,11 +372,11 @@ connection failure, SurfaceFlinger connects to the composer, and the display
 hotplug event is delivered. SurfaceFlinger then aborts with `output buffer not
 gpu writeable`. The log also shows SwiftShader rejecting an
 `AHardwareBuffer` format and `gralloc.default` failing ashmem allocations.
-Android guest sets `sys.use_memfd=true` when `/dev/ashmem`
+The vendor image sets `sys.use_memfd=true` when `/dev/ashmem`
 is absent, but the probe had not done that. It now sets the property at
 `early-init` and reports its effective value; rerun to see whether that resolves
 the allocation failures and SurfaceFlinger abort. Android boot remains
-incomplete. The host's existing Android guest config expects
+incomplete. The host's existing container config expects
 `/dev/dri/renderD128` with Mesa/GBM, but the Droidpc probe hid host devices
 and forced software rendering. The probe now binds that node and
 selects Mesa/GBM when it exists, retaining SwiftShader/Pastel as the fallback.

@@ -8,6 +8,159 @@ from pathlib import Path
 
 
 class FinalStateProbeTests(unittest.TestCase):
+    def test_window_fifo_collision_retries_without_removing_existing_path(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        allocator = source.split('    attempt=0\n', 1)[1].split(
+            '    chown ', 1
+        )[0].replace('$$', 'test')
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            collision = root / 'droidpc-input-test-0.pipe'
+            collision.write_text('keep')
+            script = root / 'allocate.sh'
+            script.write_text(
+                f'guest_runtime_dir="{root}"\nattempt=0\n{allocator}'
+                'printf "%s\\n%s\\n%s\\n" "$attempt" '
+                '"$stream_fifo" "$input_fifo"\n'
+            )
+            result = subprocess.run(['/bin/sh', str(script)],
+                                    check=True, capture_output=True,
+                                    text=True, timeout=3)
+            attempt, stream, input_path = result.stdout.splitlines()
+
+            self.assertEqual(attempt, '1')
+            self.assertTrue(collision.is_file())
+            self.assertFalse((root / 'droidpc-screen-test-0.pipe').exists())
+            self.assertTrue(Path(stream).is_fifo())
+            self.assertTrue(Path(input_path).is_fifo())
+
+    def test_window_guest_input_helper_accepts_only_numeric_commands(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/read-input.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\nfi\n', 1)[0]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            commands = root / 'bin'
+            commands.mkdir()
+            input_tool = commands / 'input'
+            input_tool.write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$INPUT_LOG"
+''')
+            input_tool.chmod(0o755)
+            injection_marker = root / 'injection-marker'
+            input_file = root / 'commands'
+            input_file.write_text(f'''tap 12 34
+tap 12 nope
+swipe 1 2 30 40 250
+swipe 1 2 3 4
+key 4
+key 4; touch {injection_marker}
+''')
+            script = root / 'read-input.sh'
+            script.write_text(helper.replace(
+                '/system/bin/input', 'input').replace(
+                    '/data/droidpc-input.pipe', str(input_file)))
+            log = root / 'input.log'
+            subprocess.run(['/bin/sh', str(script)], env=os.environ | {
+                'PATH': f'{commands}:{os.environ["PATH"]}',
+                'INPUT_LOG': str(log),
+            }, check=True, timeout=3)
+
+            self.assertEqual(log.read_text().splitlines(), [
+                'tap 12 34', 'swipe 1 2 30 40 250', 'keyevent 4',
+            ])
+            self.assertFalse(injection_marker.exists())
+
+    def test_window_stream_forwards_consecutive_h264_streams(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\nfi\n', 1)[0]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            frame = root / 'frame.h264'
+            frame.write_bytes(b'H264-frame')
+            count = root / 'count'
+            commands = root / 'bin'
+            commands.mkdir()
+            screenrecord = commands / 'screenrecord'
+            screenrecord.write_text('''#!/bin/sh
+count=$(cat "$FRAME_COUNT" 2>/dev/null || echo 0)
+[ "$count" -lt 2 ] || { kill -TERM "$PPID"; exit 1; }
+echo $((count + 1)) > "$FRAME_COUNT"
+cat "$FRAME"
+''')
+            screenrecord.chmod(0o755)
+            output = root / 'stream'
+            script = root / 'stream.sh'
+            script.write_text(helper.replace(
+                '/data/droidpc-screen.pipe', str(output)).replace(
+                    '/system/bin/screenrecord', 'screenrecord'))
+
+            result = subprocess.run(['/bin/sh', str(script)], env=os.environ | {
+                'PATH': f'{commands}:{os.environ["PATH"]}',
+                'FRAME': str(frame),
+                'FRAME_COUNT': str(count),
+            }, timeout=3)
+
+            self.assertEqual(result.returncode, -15)
+            self.assertEqual(output.read_bytes(),
+                             b'H264-frameH264-frame')
+
+    def test_completed_boot_captures_a_screenshot(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/read-final-state.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\n', 1)[0]
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data = root / 'data'
+            data.mkdir()
+            commands = root / 'bin'
+            commands.mkdir()
+            script = root / 'probe.sh'
+            script.write_text(helper.replace('/data', str(data))
+                              .replace('/system/bin/service', 'service')
+                              .replace('/system/bin/screencap', 'screencap'))
+            state = root / 'boot-property-read'
+            stubs = {
+                'getprop': '''#!/bin/sh
+if [ "$1" = sys.boot_completed ]; then
+  if [ -e "$BOOT_PROPERTY_READ" ]; then echo 1
+  else touch "$BOOT_PROPERTY_READ"; echo 0; fi
+else echo running; fi
+''',
+                'pidof': '#!/bin/sh\necho 42\n',
+                'ps': '#!/bin/sh\necho system_server 42\n',
+                'service': '#!/bin/sh\necho "Service $2: found"\n',
+                'screencap': '#!/bin/sh\nprintf PNG > "$2"\n',
+            }
+            for name, contents in stubs.items():
+                path = commands / name
+                path.write_text(contents)
+                path.chmod(0o755)
+
+            environment = os.environ | {
+                'PATH': f'{commands}:{os.environ["PATH"]}',
+                'BOOT_PROPERTY_READ': str(state),
+            }
+            subprocess.run(['/bin/sh', str(script)], env=environment,
+                           check=True, timeout=3)
+
+            self.assertIn('SCREEN_CAPTURE_OK',
+                          (data / 'droidpc-final-state').read_text())
+            self.assertEqual((data / 'droidpc-screenshot.png').read_bytes(),
+                             b'PNG')
+
     def test_snapshot_is_written_before_boot_wait(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()

@@ -2,13 +2,25 @@
 
 ## Current state
 
-- Latest host boot evidence is inconsistent across runs: one reached
-  `sys.boot_completed=1`; the later run reached framework and
-  Launcher/SystemUI startup but timed out without it. The later run still
-  logged Mesa `failed to get driver name for fd -1`. Its init log shows
-  shutdown after the 180-second timeout. This does not establish reliable
-  boot completion or visible rendering. Host node permissions remain
-  unchanged.
+- Latest host-capability probe reached `sys.boot_completed=1` before the
+  outer 180-second timeout. SurfaceFlinger, zygote, the graphics allocator and
+  HWC were running; ActivityManager and PackageManager checks succeeded. The
+  `INIT_PROBE_STATUS=124` is the probe's outer timeout, not evidence that
+  Android failed to boot. Earlier runs include one incomplete boot, so repeat
+  reliability is still unproven.
+- Android `system` (UID 1000), Launcher (10102) and SystemUI (10108) all opened
+  both `/dev/dri/card1` and `/dev/dri/renderD128`; both nodes were mode 0666 in
+  this private probe. A screenshot from the subsequent run shows the Android
+  lock screen, status bar and navigation controls, confirming visible frame
+  rendering. This is a rendering milestone; repeatability and production
+  runtime isolation are still unverified.
+- The same run repeatedly failed to start `incidentd` because init could not
+  apply its requested capabilities (`cap_set_proc(524320): Operation not
+  permitted`). Guest UID cgroup placement is also still unresolved: the guest
+  sees `cpu io memory pids`, has none enabled for children, and remains at
+  `0::/`. Host SELinux AVCs for the probe domain were marked `permissive=1`.
+  This run therefore does not validate an enforcing production policy or
+  delegated cgroup setup.
 
 - Image verification exists in `droidpc-container`.
 - `loop_device::LoopDevice` retains the verified image handle and configures
@@ -28,27 +40,27 @@
   layout is unit tested. The `binder` example now checks each device is a
   character device, opens it read/write, and explicitly cleans up; kernel
   mount/allocation/cleanup through this implementation still need a host run.
-- Android init reached `sys.boot_completed=1` in one supplied run; the later
-  run timed out before setting it. Reliable boot completion remains
-  unverified, and there is still no production start/stop lifecycle.
+- Android init has now reached `sys.boot_completed=1` in more than one
+  supplied run, including the latest probe. Repeat reliability and a
+  production start/stop lifecycle remain unverified.
 - Earlier runs showed EGL `EACCES` and SurfaceFlinger buffer failures. The
-  current guest nodes are mode `0666`; the latest supplied run no longer shows
-  those errors, but Mesa still logs `fd -1` and Android boot remains
-  incomplete. The probe maps `renderD128` to its actual primary card (`card1`)
-  and keeps both nodes private to the guest mount namespace.
+  latest run's Android system, launcher and SystemUI users all opened the
+  private mode-0666 DRM nodes, and Android boot completed. Actual EGL frame
+  presentation still needs direct confirmation. The probe maps `renderD128`
+  to its actual primary card (`card1`) and keeps both nodes private to the
+  guest mount namespace.
 - The vendor allocator init rule only starts
   `vendor.graphics.allocator-4-0` when `ro.hardware.gralloc=minigbm_gbm_mesa`.
   The probe used `gbm`, so it now sets the exact image value and reports
   allocator/composer service state in the final snapshot.
-- The probe supplies the vendor image's `android_guest.stub_sensors_hal=1`
-  property and host user/UID/GID properties used by vendor audio and HWC
+- The probe supplies the vendor image's stub sensor property and host
+  user/UID/GID properties used by vendor audio and HWC
   services running as `host`. It reports the guest UID/GID maps and audio
   service state alongside HWC. SystemServer ANR traces are reported by path
   to keep diagnostics bounded.
 - The DRM probe now opens the staged nodes as Android `system` and as the
   launcher (UID 10102) and SystemUI (UID 10108), matching the app identities
-  seen in the captured crash log. Those app-UID access checks have not yet been
-  verified in a host run.
+  seen in the captured crash log. The latest host run passed all six opens.
 - Additional graphics prerequisite found by inspecting the selected vendor
   image's `/lib64/libdrm.so`: it contains lookups for
   `/sys/dev/char/%d:%d/device/drm`, `/sys/dev/char/%d:%d/device`, and
@@ -72,29 +84,41 @@ startup, and guest init contract must be resolved before starting Android
 under an enforcing production boundary. Do not reuse the permissive probe
 policy as the runtime policy.
 
-The installed Fedora Android guest policy source adds useful host-specific evidence:
-it mounts the guest rootfs as `android_guest_rootfs_t`, transitions guest init into
+The installed Fedora container policy source adds useful host-specific
+evidence: it labels the guest rootfs, transitions guest init into
 `container_runtime_t`, and allows that domain's private Binder context manager.
 The failed Droidpc probe stayed in `unconfined_t`, which explains its Binder
 denial. This is a design lead, not Droidpc policy: its own rootfs label and
-confined transition are still required, and the Android guest policy must not be a
+confined transition are still required, and the host policy must not be a
 runtime dependency.
 
 ## Next action
 
-First validate the new Rust image ownership path on the host:
+The selected image files currently pass the Rust verifier:
 
 ```sh
-cargo build -p droidpc-container --example stage
-sudo ./target/debug/examples/stage "$PWD/os_images/selected"
+cargo run -p droidpc-container --example verify -- os_images/selected
 ```
 
-Success prints `System/vendor staged read-only, cleaned up, hashes unchanged`.
-An error is not a passing staging gate. The example uses a new private
+The check completed successfully in the current workspace with
+`Verified system and vendor; no mounts created`. The earlier host staging
+attempt reported a hash mismatch, so rerun the privileged stage example before
+depending on kernel mounts. It uses a new private
 `/tmp/droidpc-stage-<pid>-<attempt>` directory and does not start Android or touch
 persistent guest data. It attempts normal cleanup and rolls back the system
 mount if vendor setup fails; injected failures after successful mounts and concurrent loop
 allocation still need runtime coverage.
+
+The next implementation milestone toward a live window is a supervised,
+persistent Android session with bounded stop/recovery. An experimental
+`DROIDPC_PROBE_WINDOW=1` mode streams Android H.264 screen recording through
+GStreamer into a GTK window, forwards taps/swipes/basic navigation keys through
+a validated guest input helper, and stops the guest on window close or Ctrl-C.
+Guest screenrecord support and required GStreamer/GTK libraries are present; the
+privileged guest/window/input run remains unverified. Window mode preserves
+guest data in `~/.local/share/droidpc-probe/data`; it still uses diagnostic
+capabilities and remains a development bridge rather than the production
+runtime.
 
 After staging passes, run the BinderFS check in a disposable namespace:
 
@@ -112,7 +136,17 @@ example does not replace the host Binder devices or start Android.
 Sandboxed execution has no `/dev/loop-control` or `/dev/dri`, no effective
 capabilities, and `NoNewPrivs=1`. Execution outside the sandbox does reach the
 host devices with `NoNewPrivs=0`, but `sudo -n true` reports that a password is
-required. Privileged staging and Android boot remain unverified.
+required. A later check inside this Codex execution sandbox confirmed that
+`sudo -n` is also blocked by `NoNewPrivs=1`; this sandbox result does not test
+the user's host terminal. Privileged staging and Android boot remain
+unverified.
+
+The current workspace was rechecked with `cargo test --workspace --all-targets`
+(16 tests), `cargo clippy --workspace --all-targets -- -D warnings`, and
+`python3 -m unittest discover -s scripts/tests` (6 tests); all passed. The
+`stage` and `binder` examples were rebuilt after their source files, and the
+rebuilt `verify` example checked both selected image hashes successfully.
+These checks do not validate privileged mounts or Android runtime behavior.
 
 The GPU snapshot helper was run directly against host sysfs without root:
 `renderD128` reported `226:128`, its matching `card1` reported `226:1`, and
@@ -136,8 +170,8 @@ minimal environment emitted the expected missing-linkerconfig warning.
 This verifies Android vendor-library discovery, not EGL/Mesa rendering,
 allocator operation, privileged image staging, or Android boot completion.
 
-The latest host-capability run still timed out without `sys.boot_completed`.
-The next diagnostic snapshot now reports ActivityManager/package service
-checks before the timeout and omits the unbounded SystemServer stack dump.
-The probe remains diagnostic only; production boot requires the scoped
-capability, SELinux and cgroup contract described above.
+The latest host-capability run set `sys.boot_completed=1` and passed framework
+service checks before the outer timeout. The probe remains diagnostic only;
+production boot requires a scoped capability, enforcing SELinux and delegated
+cgroup contract. Visible EGL output is now confirmed; reliable repeated boots
+and graceful start/stop remain open.

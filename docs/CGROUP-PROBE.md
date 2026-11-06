@@ -59,7 +59,7 @@ loop or a custom resource daemon. This does not solve Android's internal
 per-process and per-thread scheduling requirements.
 
 This follows the [systemd delegation contract][delegation] and the kernel's
-[cgroup v2 rules][cgroups]. It is not a copy of Android guest's host runtime.
+[cgroup v2 rules][cgroups]. The probe uses its own host setup.
 
 The next runtime probe should start in its own delegated systemd unit. Move
 the host supervisor into a `manager` leaf, then enable `cpu`, `memory` and
@@ -113,7 +113,7 @@ Read-only `debugfs` inspection of the selected images found:
   with `schedtune` cgroup joins. It also redirects `CpuPolicySpread` and
   `CpuPolicyPack` to `schedtune.prefer_idle`.
 - The selected vendor image has no `/etc/cgroups.json` or
-  `/etc/task_profiles.json` override. Its `/android_guest.prop` contains only
+  `/etc/task_profiles.json` override. Its vendor property file contains only
   a comment, so it supplies no boot properties.
 
 The PID 1 init probe attempted v1 `blkio`, `cpu`, `cpuset`, `memory` and
@@ -206,8 +206,8 @@ Additional read-only observations from the selected system image:
   `/apex/com.android.runtime/bin/linker64`.
 - APEX modules, including `com.android.runtime`, are unpacked directories
   under `/system/apex`. Init still needs to expose them at runtime paths.
-- The init binary contains `second_stage`, `/vendor/android_guest.prop` and
-  `android_guest.host.uid`. Strings are clues, not proof of argument behavior or
+- The init binary contains `second_stage`, a vendor property path and a host
+  UID property. Strings are clues, not proof of argument behavior or
   property initialization order. The exact entry mode remains unverified.
 - Guest graphics/audio services use a `host` account. Its UID/GID and
   permissions must be established before those services start.

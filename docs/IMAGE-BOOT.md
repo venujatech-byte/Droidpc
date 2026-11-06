@@ -6,11 +6,11 @@ not a tested container configuration. Android has not been started.
 ## Original host implementation and third-party guest
 
 Write Droidpc's Rust host runtime independently from Linux interfaces and
-upstream specifications. Do not copy or rebrand Android guest runtime code or
+upstream specifications. Do not copy or rebrand another runtime's code or
 scripts. Do not claim the selected guest images were created by Droidpc.
 
-The supplied images contain Android guest-built LineageOS and Android guest guest HALs.
-Retain their names, embedded attribution and notices. Keep the images outside
+The supplied images contain third-party LineageOS and guest HALs. Retain
+their embedded attribution and notices. Keep the images outside
 Git. The Droidpc repository license does not replace third-party licenses.
 This inspection is not a redistribution or licensing audit.
 
@@ -46,7 +46,7 @@ archive contents in 9 system and 1 vendor 1 MiB blocks; those originals remain
 preserved in their source directories. This verifies correspondence to the
 fetched release metadata, not the security or bootability of the guest.
 
-[System manifest][system] and [vendor manifest][vendor] were checked for the
+The system and vendor manifests were checked for the
 20260927 release. Recorded archive hashes:
 
 System ZIP, 847449341 bytes:
@@ -82,7 +82,7 @@ Read with `debugfs` in its default read-only mode, without mounting or
 executing anything from either image:
 
 - System `/system/build.prop` identifies LineageOS 20.0, Android 13, API 33,
-  `android_guest_x86_64`, and x86_64/x86 ABIs. Native bridge is disabled.
+  an x86_64 desktop device identifier, and x86_64/x86 ABIs. Native bridge is disabled.
 - Vendor `/build.prop` identifies the same device, Android version and ABIs,
   with VNDK 33 and `zygote64_32`.
 - Both identify 20260927 builds. This is a candidate matched pair; full VINTF
@@ -113,7 +113,7 @@ runtime scripts or an implementation recipe.
 | Init touches host-sensitive sysfs/debugfs paths | Expose a restricted view; never hand over writable host trees. |
 | Vendor manifest declares task/window/display services | Presence alone does not establish usable desktop integration. |
 
-The vendor image contains a Android guest composer, GBM/minigbm allocators and
+The vendor image contains a desktop composer, GBM/minigbm allocators and
 Intel/Radeon/virtio Vulkan libraries. Their presence does not establish
 which path works on the host GPU. No graphics selection has been made yet.
 
@@ -147,6 +147,3 @@ selected image. No container crate or privileged boot code was added here.
 - Doctor outside the development sandbox reports 0 problems and 6 warnings
   for `os_images/selected`, including successful GPU device access.
 - Workspace format, compile, Clippy and all eight tests pass.
-
-[system]: https://ota.example.invalid/system/lineage/android_guest_x86_64/VANILLA.json
-[vendor]: https://ota.example.invalid/vendor/android_guest_x86_64/MAINLINE.json

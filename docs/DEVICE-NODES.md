@@ -30,8 +30,8 @@ scoped guest view or a replacement behavior.
 
 The vendor image's VINTF manifest declares HIDL services for graphics
 composer and allocator, audio, external camera, sensors, power, health,
-lights, keymaster, gatekeeper, media OMX, and vendor-specific Android guest
-clipboard, display, and task services. A manifest declaration means Android
+lights, keymaster, gatekeeper, media OMX, and vendor-specific clipboard,
+display, and task services. A manifest declaration means Android
 expects a service interface. It does not prove that the service starts,
 that its device nodes are present, or that a corresponding host bridge
 exists.
@@ -82,8 +82,8 @@ Image source inspected with read-only `debugfs`:
 - `/vendor/etc/vintf/manifest.xml`
 - `/vendor/bin/hw/` service names
 
-The image also has Android guest-specific composer, display and task services.
-Keep their attribution. Droidpc's host program and any new integration must
+The image also has vendor-specific composer, display and task services. Keep
+their attribution. Droidpc's host program and any new integration must
 be original work; this inventory does not prescribe copying their runtime.
 
 Before writing a uevent forwarder, answer these questions with a focused
