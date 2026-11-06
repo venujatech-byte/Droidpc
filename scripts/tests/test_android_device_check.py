@@ -22,14 +22,24 @@ class DeviceCheckTests(unittest.TestCase):
                 path.chmod(0o700)
             helper = helper.replace('/data/local/tmp', str(root / 'apk')).replace('/data/droidpc-device-check.log', str(root / 'report'))
             fixture = root / 'log'
-            for lines, expected in [
-                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_FRAME_OK 640x480 bytes=100\nrun-1 CHECK_COMPLETE\n', 0),
-                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_FAIL no devices\nrun-1 CHECK_COMPLETE\n', 1),
-                ('old-run HTTPS_OK 204\nold-run CAMERA_FRAME_OK 640x480\nold-run CHECK_COMPLETE\n', 1),
+            for lines, marker, expected in [
+                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_FRAME_OK 640x480 bytes=100\nrun-1 CHECK_COMPLETE\n', 'CAMERA_FRAME_OK', 0),
+                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_FAIL no devices\nrun-1 CHECK_COMPLETE\n', 'CAMERA_FRAME_OK', 1),
+                ('old-run HTTPS_OK 204\nold-run CAMERA_FRAME_OK 640x480\nold-run CHECK_COMPLETE\n', 'CAMERA_FRAME_OK', 1),
+                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_PREVIEW_OK frames=10\nrun-1 CHECK_COMPLETE\n', 'CAMERA_PREVIEW_OK', 0),
+                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_FRAME_OK bytes=100\nrun-1 CHECK_COMPLETE\n', 'CAMERA_PREVIEW_OK', 1),
+                ('run-1 HTTPS_OK 204\nrun-1 CAMERA_PREVIEW_OK frames=10\n', 'CAMERA_PREVIEW_OK', 1),
             ]:
                 with self.subTest(log=lines):
                     fixture.write_text(lines)
-                    result = subprocess.run(['sh', '-c', helper, 'check', 'run-1'], input=b'test apk',
+                    result = subprocess.run(['sh', '-c', helper, 'check', 'run-1', 'false', marker], input=b'test apk',
                                             env=os.environ | {'PATH': str(commands) + os.pathsep + os.environ['PATH'], 'CHECK_LOG': str(fixture)}, capture_output=True, timeout=5)
                     self.assertEqual(result.returncode, expected, result.stderr)
                     self.assertFalse((root / 'apk/droidpc-device-check.apk').exists())
+
+    def test_unknown_or_truncated_options_are_rejected(self):
+        source = (Path(__file__).resolve().parents[1] / 'diagnose-android-graphics.sh').read_text()
+        options = source.split('mode=${1:-graphics}', 1)[1].split('root=', 1)[0]
+        result = subprocess.run(['sh', '-c', options], env=os.environ | {'mode': '--verify-'}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('Unknown diagnostic mode', result.stderr)

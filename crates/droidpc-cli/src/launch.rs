@@ -37,6 +37,11 @@ pub fn run() -> ExitCode {
                 env::var("DROIDPC_PROBE_NETWORK")
                     .unwrap_or_else(|_| "1".into())
             ))
+            .arg(format!(
+                "DROIDPC_GRALLOC={}",
+                env::var("DROIDPC_GRALLOC")
+                    .unwrap_or_else(|_| "minigbm_gbm_mesa".into())
+            ))
             .arg(script)
             .exec();
         eprintln!("Could not launch Android: {error}");

@@ -468,3 +468,19 @@ Host verification on 2026-11-06 confirmed `HTTPS_OK 204` and
 `CAMERA_FRAME_OK 640x360 bytes=20438` through the Android diagnostic app. Camera
 ID `100` is registered as an external camera. This verifies one still frame;
 continuous preview, video recording and suspend/resume require separate checks.
+
+For a frozen camera preview, run
+`sudo ./scripts/diagnose-android-graphics.sh --verify-preview`. This closes the
+stock camera app, opens a GPU-backed TextureView in the diagnostic app, and
+requires ten displayed frames (`CAMERA_PREVIEW_OK`). A successful JPEG check
+alone does not verify this continuous preview path. `--camera-errors` also
+includes the stock app's logs and recent app-not-responding events.
+
+The image also includes a legacy GBM allocator. For a controlled comparison when
+GPU camera textures crash, launch with `DROIDPC_GRALLOC=gbm` (the normal default
+remains `minigbm_gbm_mesa`). Both paths retain Mesa GPU rendering. The legacy
+path sets `gralloc.gbm.legacy=true` because init otherwise overrides
+`ro.hardware.gralloc`, selects the render node explicitly, and uses the image's
+allocator/mapper 2.x services; the minigbm compatibility overlay applies only to minigbm sessions.
+A successful still-frame check does not establish that the preview problem is
+fixed; use `--verify-preview` to require displayed frames and clean completion.

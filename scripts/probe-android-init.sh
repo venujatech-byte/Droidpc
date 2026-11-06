@@ -27,6 +27,11 @@ case "$capture_source" in
     *) echo "DROIDPC_CAPTURE_SOURCE must be display or snapshot" >&2; exit 1 ;;
 esac
 window_binary=$(pwd -P)/target/release/droidpc-window
+gralloc_backend=${DROIDPC_GRALLOC:-minigbm_gbm_mesa}
+case "$gralloc_backend" in
+    minigbm_gbm_mesa|gbm) ;;
+    *) echo "DROIDPC_GRALLOC must be minigbm_gbm_mesa or gbm" >&2; exit 1 ;;
+esac
 
 network_enabled=${DROIDPC_PROBE_NETWORK:-${DROIDPC_PROBE_WINDOW:-0}}
 case "$network_enabled" in
@@ -118,7 +123,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
-    if [ -n "$render_node" ] && { [ ! -f "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ ! -f "$root/target/gbm-compat/lib64/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.c" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.h" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ]; }; then
+    if [ -n "$render_node" ] && [ "$gralloc_backend" = minigbm_gbm_mesa ] && { [ ! -f "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ ! -f "$root/target/gbm-compat/lib64/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.c" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.h" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ]; }; then
         runuser -u "$SUDO_USER" -- "$root/scripts/build-gbm-compat.sh"
     fi
     if [ "$window_backend" = rust ]; then
@@ -635,13 +640,18 @@ debugfs -R 'cat /system/build.prop' "$system" 2>/dev/null \
 if ! grep -q '^ro.sf.lcd_density=' "$tmp/system-build.prop"; then
     printf '%s\n' 'ro.sf.lcd_density=160' >> "$tmp/system-build.prop"
 fi
-sed -i '/^ro.hardware.egl=/d; /^ro.hardware.gralloc=/d; /^ro.hardware.vulkan=/d' \
+sed -i '/^ro.hardware.egl=/d; /^ro.hardware.gralloc=/d; /^ro.hardware.vulkan=/d; /^gralloc.gbm.device=/d; /^gralloc.gbm.legacy=/d' \
     "$tmp/system-build.prop"
 if [ -n "$render_node" ]; then
     printf '%s\n' \
         'ro.hardware.egl=mesa' \
-        'ro.hardware.gralloc=minigbm_gbm_mesa' \
+        "ro.hardware.gralloc=$gralloc_backend" \
         'ro.hardware.vulkan=intel' >> "$tmp/system-build.prop"
+    if [ "$gralloc_backend" = gbm ]; then
+        printf '%s\n' 'gralloc.gbm.legacy=true' 'gralloc.gbm.device=/dev/dri/renderD128' >> "$tmp/system-build.prop"
+    else
+        printf '%s\n' 'gralloc.gbm.legacy=false' >> "$tmp/system-build.prop"
+    fi
 else
     printf '%s\n' \
         'ro.hardware.egl=swiftshader' \
@@ -714,7 +724,7 @@ set -- "$@" \
         --bind "$data_dir" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig
-if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ] && [ -n "$render_node" ]; then
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ] && [ -n "$render_node" ] && [ "$gralloc_backend" = minigbm_gbm_mesa ]; then
     for abi in lib lib64; do
         case "$abi" in lib) expected_size=32 ;; lib64) expected_size=64 ;; esac
         original=$tmp/vendor/$abi/libgbm_mesa_wrapper.so
@@ -749,6 +759,7 @@ fi
 set -- "$@" --chdir / /system/bin/init second_stage
 if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" = 1 ]; then
     echo "WARNING: Android init has host-level capabilities inside private namespaces."
+    echo "Requested graphics allocator: $gralloc_backend"
 else
     set -- /usr/bin/unshare --user \
         --map-users=0:0:65536 \

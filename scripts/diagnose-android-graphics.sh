@@ -7,6 +7,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 mode=${1:-graphics}
+case "$mode" in
+    graphics|--devices|--verify|--verify-preview|--camera-access|--camera-errors|--camera-crash|--graphics-config) ;;
+    *) echo "Unknown diagnostic mode: $mode" >&2; exit 2 ;;
+esac
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 devices=0
 [ "${1:-}" != --devices ] || devices=1
@@ -39,12 +43,41 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
     set -- runcon -t droidpc_probe_t -- "$@"
 fi
 
+if [ "$mode" = --graphics-config ]; then
+    timeout --kill-after=2s 10s "$@" /system/bin/sh -c '
+        echo "--- Loaded properties ---"
+        getprop ro.hardware.gralloc
+        getprop gralloc.gbm.device
+        getprop gralloc.gbm.legacy
+        echo "--- Generated build properties ---"
+        grep -E "^(ro.hardware.(egl|gralloc)|gralloc.gbm.(device|legacy))=" /system/build.prop
+        echo "--- Allocator services ---"
+        getprop init.svc.vendor.gralloc-2-0
+        getprop init.svc.vendor.graphics.allocator-4-0
+    '
+    exit 0
+fi
+
+if [ "$mode" = --camera-crash ]; then
+    timeout --kill-after=2s 10s "$@" /system/bin/sh -c '
+        logcat -d -b crash -v threadtime | tail -160
+        logcat -d -b events -v threadtime -s am_crash:I am_anr:I "*:S" | tail -15
+    '
+    exit 0
+fi
+
 if [ "$mode" = --camera-errors ]; then
     timeout --kill-after=2s 10s "$@" /system/bin/sh -c '
         for pid in $(pidof android.hardware.camera.provider@2.7-external-service); do
             echo "--- Unfiltered camera provider log: $pid ---"
             logcat -d -b all -v threadtime --pid="$pid" | tail -100
         done
+        for pid in $(pidof org.lineageos.aperture); do
+            echo "--- Camera app log: $pid ---"
+            logcat -d -b all -v threadtime --pid="$pid" | tail -80
+        done
+        echo "--- Latest app responsiveness failure ---"
+        logcat -d -b events -v threadtime -s am_anr:I "*:S" | tail -8
         logcat -d -b all -v threadtime | grep -Ei "minigbm|Failed to lock|ExtCam|CamPrvdr|HandleImporter|[Mm]apper|[Gg]ralloc|Camera3-|CameraService|CameraProviderManager|v4l2|ashmem|FMQ|mmap|dma.?buf" | tail -120
     '
     exit 0
@@ -68,7 +101,10 @@ if [ "$mode" = --camera-access ]; then
     exit 0
 fi
 
-if [ "$mode" = --verify ]; then
+if [ "$mode" = --verify ] || [ "$mode" = --verify-preview ]; then
+    preview=false
+    marker=CAMERA_FRAME_OK
+    if [ "$mode" = --verify-preview ]; then preview=true; marker=CAMERA_PREVIEW_OK; fi
     if [ ! -f "$root/target/droidpc-device-check.apk" ] || [ "$root/scripts/android/devicecheck/DeviceCheck.java" -nt "$root/target/droidpc-device-check.apk" ] || [ "$root/scripts/android/devicecheck/AndroidManifest.xml" -nt "$root/target/droidpc-device-check.apk" ]; then
         if [ -z "${SUDO_USER:-}" ]; then
             echo 'Build the device check as your desktop user: ./scripts/build-android-device-check.sh' >&2
@@ -81,12 +117,14 @@ if [ "$mode" = --verify ]; then
     trap 'rm -f -- "$report"' EXIT
     timeout --signal=TERM --kill-after=2s 45s "$@" /system/bin/sh -c '
         [ "$(getprop sys.boot_completed)" = 1 ] || { echo "Android has not finished booting"; exit 1; }
+        echo "GRALLOC_BACKEND=$(getprop ro.hardware.gralloc)"
         mkdir -p /data/local/tmp
         cat > /data/local/tmp/droidpc-device-check.apk
         pm install -r -g /data/local/tmp/droidpc-device-check.apk || exit 1
         rm -f /data/local/tmp/droidpc-device-check.apk
         am force-stop com.droidpc.devicecheck
-        am start -W -n com.droidpc.devicecheck/.DeviceCheck --es run "$1" || exit 1
+        if [ "$2" = true ]; then am force-stop org.lineageos.aperture; fi
+        am start -W -n com.droidpc.devicecheck/.DeviceCheck --es run "$1" --ez preview "$2" || exit 1
         count=0
         while [ "$count" -lt 28 ]; do
             logcat -d -v brief -s DroidpcDeviceCheck:I "*:S" | grep -F "$1" > /data/droidpc-device-check.log
@@ -96,17 +134,18 @@ if [ "$mode" = --verify ]; then
         done
         cat /data/droidpc-device-check.log
         am force-stop com.droidpc.devicecheck
-        grep -q HTTPS_OK /data/droidpc-device-check.log && grep -q CAMERA_FRAME_OK /data/droidpc-device-check.log
-    ' sh "$token" < "$root/target/droidpc-device-check.apk" > "$report" 2>&1 && result=0 || result=$?
+        grep -q CHECK_COMPLETE /data/droidpc-device-check.log && grep -q HTTPS_OK /data/droidpc-device-check.log && grep -q "$3" /data/droidpc-device-check.log
+    ' sh "$token" "$preview" "$marker" < "$root/target/droidpc-device-check.apk" > "$report" 2>&1 && result=0 || result=$?
     cat "$report"
     if [ "$result" -ne 0 ]; then
         echo 'Device verification failed; collecting camera initialization errors.'
         for device_log in "$guest/data/droidpc-devices.log.1" "$guest/data/droidpc-devices.log"; do
-            [ ! -f "$device_log" ] || tail -50 "$device_log"
+            [ ! -f "$device_log" ] || { grep -Ei "CamPrvdr|ExtCam|CameraService|CameraProviderManager|HandleImporter|[Gg]ralloc|minigbm|GBM" "$device_log" | tail -35 || true; }
         done
         timeout --kill-after=2s 5s "$@" /system/bin/sh -c '
             logcat -d -v threadtime -s "CamPrvdr@2.4-external:V" "CamPrvdr@2.7-external:V" "ExtCamDev@3.4:V" "ExtCamDev@3.5:V" "ExtCamDevSsn@3.4:V" "ExtCamDevSsn@3.5:V" "Camera3-Device:V" "CameraService:V" "CameraProviderManager:V" "*:S" | tail -80
-            dumpsys media.camera | head -60
+            dumpsys media.camera | sed -n "1,55p"
+            logcat -d -b crash -v threadtime | tail -85
         ' || true
     fi
     exit "$result"
