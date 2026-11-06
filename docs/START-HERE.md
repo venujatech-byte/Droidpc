@@ -389,7 +389,9 @@ Wheel movement is proportional, coalesced and bounded to prevent large jumps.
 Camera nodes use Android's camera group (1006), matching the external provider.
 Desktop sessions require `pasta` from the `passt` package for a private Ethernet
 link and host DNS forwarding. Its helper retains UID 0 to enter the root-owned
-guest network namespace, then applies its own capability and syscall sandbox. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
+guest network namespace, then applies its own capability and syscall sandbox.
+The launcher pins the namespace with a private bind mount before starting the
+helper, avoiding restricted process namespace paths; cleanup releases the mount. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
 No host routes or inbound port forwards are created. Networking logs are stored
 in the printed temporary log directory as `network.log`.
 

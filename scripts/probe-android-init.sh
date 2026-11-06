@@ -179,6 +179,7 @@ cleanup() {
         wait "$viewer_pid" 2>/dev/null || true
         viewer_pid=
     fi
+    umount "$tmp/network.ns" 2>/dev/null || true
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
     umount "$tmp/dri" 2>/dev/null || true
@@ -777,8 +778,10 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
             echo "No host DNS resolver configured" >&2
             exit 1
         fi
-        # pasta drops UID before setns; this namespace belongs to host root.
-        pasta --foreground --netns "/proc/$guest_init/ns/net" \
+        # Pin the namespace before pasta drops ptrace capabilities needed by /proc.
+        touch "$tmp/network.ns"
+        mount --bind "/proc/$guest_init/ns/net" "$tmp/network.ns"
+        pasta --foreground --netns "$tmp/network.ns" \
             --runas 0:0 \
             --config-net --ns-ifname eth0 --no-map-gw \
             --dns-forward 10.0.2.3 --dns-host "$host_dns" --dns 10.0.2.3 --dhcp-dns \
