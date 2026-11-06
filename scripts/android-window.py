@@ -31,12 +31,13 @@ class AndroidWindow:
     def __init__(self, stream_fifo, input_fifo):
         self.input_fifo = input_fifo
         self.input_fd = None
+        self.stream_fd = os.open(stream_fifo, os.O_RDWR)
         self.frame_width = 0
         self.frame_height = 0
         self.pointer_start = None
         self.pointer_time = 0.0
         self.pipeline = Gst.parse_launch(
-            f'filesrc location="{stream_fifo}" do-timestamp=true '
+            f'fdsrc fd={self.stream_fd} do-timestamp=true is-live=true '
             '! h264parse config-interval=-1 ! decodebin '
             '! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 '
             'leaky=downstream ! glupload ! glcolorconvert '
@@ -93,6 +94,7 @@ class AndroidWindow:
 
     def stop(self):
         self.pipeline.set_state(Gst.State.NULL)
+        os.close(self.stream_fd)
 
     def send(self, command):
         if self.input_fd is None:
