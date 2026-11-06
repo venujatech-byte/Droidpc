@@ -24,3 +24,14 @@ class GrallocTests(unittest.TestCase):
                     self.assertEqual(properties['ro.hardware.gralloc'], backend)
                     self.assertEqual('gralloc.gbm.device' in properties, backend == 'gbm')
                     self.assertEqual(properties['gralloc.gbm.legacy'], 'true' if backend == 'gbm' else 'false')
+
+    def test_default_uses_the_preview_verified_backend_and_rejects_unknown_values(self):
+        source = (Path(__file__).resolve().parents[1] / 'probe-android-init.sh').read_text()
+        selection = source.split('gralloc_backend=', 1)[1].split('esac', 1)[0]
+        selection = 'gralloc_backend=' + selection + 'esac\nprintf "%s" "$gralloc_backend"'
+        environment = dict(os.environ)
+        environment.pop('DROIDPC_GRALLOC', None)
+        result = subprocess.run(['sh', '-eu', '-c', selection], env=environment, capture_output=True, text=True, check=True)
+        self.assertEqual(result.stdout, 'gbm')
+        result = subprocess.run(['sh', '-eu', '-c', selection], env=environment | {'DROIDPC_GRALLOC': 'unsupported'}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)

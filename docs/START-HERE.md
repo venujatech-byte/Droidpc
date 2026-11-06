@@ -476,11 +476,22 @@ requires ten displayed frames (`CAMERA_PREVIEW_OK`). A successful JPEG check
 alone does not verify this continuous preview path. `--camera-errors` also
 includes the stock app's logs and recent app-not-responding events.
 
-The image also includes a legacy GBM allocator. For a controlled comparison when
-GPU camera textures crash, launch with `DROIDPC_GRALLOC=gbm` (the normal default
-remains `minigbm_gbm_mesa`). Both paths retain Mesa GPU rendering. The legacy
+Desktop launch defaults to the image's legacy GBM allocator, which passed the
+GPU camera preview check on the host. `DROIDPC_GRALLOC=minigbm_gbm_mesa` selects
+the alternative allocator explicitly. Both paths retain Mesa GPU rendering. The legacy
 path sets `gralloc.gbm.legacy=true` because init otherwise overrides
 `ro.hardware.gralloc`, selects the render node explicitly, and uses the image's
 allocator/mapper 2.x services; the minigbm compatibility overlay applies only to minigbm sessions.
 A successful still-frame check does not establish that the preview problem is
 fixed; use `--verify-preview` to require displayed frames and clean completion.
+
+The legacy GBM session subsequently passed `CAMERA_PREVIEW_OK frames=10` and
+`CHECK_COMPLETE`, along with validated Ethernet and `HTTPS_OK 204`. Unlike the
+previous JPEG-only check, this confirms continuous camera frames were displayed
+through Android's GPU-backed TextureView and the session closed cleanly.
+
+The user also confirmed that the stock camera app no longer crashes and its
+preview works, together with internet access. The separate JPEG check timed out
+with legacy GBM, so photo capture is still unresolved for that backend. The
+minigbm alternative passed JPEG capture but crashed GPU preview on this host;
+it remains an explicit diagnostic option rather than the normal desktop default.

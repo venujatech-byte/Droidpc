@@ -27,7 +27,7 @@ case "$capture_source" in
     *) echo "DROIDPC_CAPTURE_SOURCE must be display or snapshot" >&2; exit 1 ;;
 esac
 window_binary=$(pwd -P)/target/release/droidpc-window
-gralloc_backend=${DROIDPC_GRALLOC:-minigbm_gbm_mesa}
+gralloc_backend=${DROIDPC_GRALLOC:-gbm}
 case "$gralloc_backend" in
     minigbm_gbm_mesa|gbm) ;;
     *) echo "DROIDPC_GRALLOC must be minigbm_gbm_mesa or gbm" >&2; exit 1 ;;
@@ -425,7 +425,8 @@ capture_state() {
     echo "--- $1 boot/service snapshot ---"
     for property in sys.boot_completed init.svc.surfaceflinger init.svc.zygote \
         init.svc.bootanim init.svc.vendor.audio-hal \
-        init.svc.vendor.audio-hal-2-0 init.svc.vendor.graphics.allocator-4-0 \
+        init.svc.vendor.audio-hal-2-0 init.svc.vendor.gralloc-2-0 \
+        init.svc.vendor.graphics.allocator-4-0 \
         init.svc.vendor.hwcomposer-2-1; do
         printf '%s=' "$property"
         getprop "$property"

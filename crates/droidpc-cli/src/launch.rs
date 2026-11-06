@@ -39,8 +39,7 @@ pub fn run() -> ExitCode {
             ))
             .arg(format!(
                 "DROIDPC_GRALLOC={}",
-                env::var("DROIDPC_GRALLOC")
-                    .unwrap_or_else(|_| "minigbm_gbm_mesa".into())
+                env::var("DROIDPC_GRALLOC").unwrap_or_else(|_| "gbm".into())
             ))
             .arg(script)
             .exec();
