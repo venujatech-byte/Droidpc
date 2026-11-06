@@ -111,7 +111,7 @@ allocation still need runtime coverage.
 
 The next implementation milestone toward a live window is a supervised,
 persistent Android session with bounded stop/recovery. The experimental
-`DROIDPC_PROBE_WINDOW=1` mode displays Android screenshots in a GTK window,
+`DROIDPC_PROBE_WINDOW=1` mode sends raw Android frames to a Rust/OpenGL window,
 forwards taps/swipes/basic navigation keys through a validated guest input
 helper, and stops the guest on window close or Ctrl-C. The privileged
 guest/window/input run remains unverified. Window mode preserves guest data in
@@ -173,3 +173,11 @@ service checks before the outer timeout. The probe remains diagnostic only;
 production boot requires a scoped capability, enforcing SELinux and delegated
 cgroup contract. Visible EGL output is now confirmed; reliable repeated boots
 and graceful start/stop remain open.
+
+The Rust viewer was checked with a synthetic 640×360 raw FIFO stream on the
+Intel UHD Graphics 605 OpenGL renderer. Its process used about 46 MiB RSS,
+16% of one CPU core with changing frames, and 0.7% with a static image. These
+figures exclude the Android guest and capture producer; they do not establish
+Android frame rate or end-to-end input latency. The release build, frame parser,
+coordinate mapping, CLI checks, and shell helper tests pass. A complete Android
+run through the new raw capture path still requires host verification.

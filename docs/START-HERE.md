@@ -176,25 +176,47 @@ state; use it only for diagnostics on a disposable host:
 sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
-To keep the diagnostic session running in a live Wayland window, install
-Python GTK 3 and GStreamer bindings plus the GStreamer H.264, OpenGL, and GTK
-plugins, then run:
+Build the Rust desktop launcher and GPU window as your regular user:
+
+```sh
+cargo build --release -j 1 -p droidpc-cli -p droidpc-window
+./target/release/droidpc-cli launch
+```
+
+Run `launch` from the repository root. It starts the privileged diagnostic
+through sudo and uses the existing persistent Android data. The viewer itself
+runs as your desktop user. OpenGL handles scaling and presentation with vertical
+sync. Android supplies raw pixels through a private FIFO, without PNG encoding,
+image files, or video codecs. Only one pending frame is retained; old frames
+are replaced rather than queued. The window title displays the observed rate.
+
+Capture targets 60 frames per second by default. For a faster display, use
+`DROIDPC_WINDOW_FPS=144 ./target/release/droidpc-cli launch` (valid range 1–240).
+This is a capture ceiling, not a promise of that rate: Android capture readback,
+resolution, CPU and GPU determine the actual result. After a second of unchanged
+pixels, capture backs off to four samples per second and skips GPU uploads.
+Input wakes capture immediately. This path still copies frames through CPU
+memory; direct graphics-buffer sharing is a future renderer change.
+
+Clicks become taps, drags become swipes, the wheel scrolls, and right click or
+Escape goes back. Basic keys and printable ASCII text are supported; arbitrary
+Unicode input is not implemented. Android soft input methods remain disabled.
+The guest graphics composer uses the host Wayland socket. Closing the viewer
+or pressing Ctrl+C stops the guest. Data remains under
+`~/.local/share/droidpc-probe/data`. Startup prints viewer and capture log paths;
+the window shows a waiting message or capture error instead of an empty black
+screen. This remains the host-capability diagnostic, not the production runtime.
+
+The previous screenshot viewer is available for recovery:
 
 ```sh
 sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
-  ./scripts/probe-android-init-selinux.sh
+  DROIDPC_WINDOW_BACKEND=screenshots ./scripts/probe-android-init-selinux.sh
 ```
 
-The window displays Android screenshots twice per second and forwards clicks,
-drags, and keyboard input. Android soft input methods are disabled in desktop
-mode. The video stream path is deferred until it can be verified on the host.
-The guest graphics composer also uses the host Wayland socket to initialize
-SurfaceFlinger.
-Closing the window or pressing Ctrl+C in that terminal stops the guest. Android
-data is preserved under `~/.local/share/droidpc-probe/data`; the startup
-message prints the resolved path. This requires a local DRM render node and
-Wayland session. It still runs the host-capability diagnostic and is for
-development only.
+This fallback needs Python GTK 3 bindings and captures approximately twice per
+second. The Rust window needs a working OpenGL driver and Wayland desktop; it
+fails explicitly if GPU window creation fails.
 
 The run repeatedly logged `incidentd` exits because it requests
 `CAP_SYS_PTRACE`, which this diagnostic intentionally drops. BPF setup also
@@ -219,12 +241,6 @@ configuration. Boot completion, framework service checks, and visible frame
 presentation now pass in supplied runs. Reliable repeated boots, enforcing
 SELinux, cgroup delegation, and a production start/stop lifecycle remain
 required before calling this a working container.
-
-The `DROIDPC_PROBE_WINDOW=1` mode streams H.264 into a GTK/OpenGL window and
-leaves init running until Ctrl-C. The viewer forwards taps, swipes, and keys
-through a restricted guest input helper. It preserves data under the user's
-home directory, but still uses the same broad diagnostic capabilities and is
-not the production runtime.
 
 Common output meanings:
 

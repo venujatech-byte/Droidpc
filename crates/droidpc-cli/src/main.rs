@@ -1,4 +1,5 @@
 mod doctor;
+mod launch;
 
 use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
@@ -20,10 +21,14 @@ fn image_directory(
 }
 
 fn main() -> ExitCode {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.len() == 1 && args[0] == "launch" {
+        return launch::run();
+    }
     match image_directory(env::args_os().skip(1)) {
         Some(images) => doctor::run(&images),
         None => {
-            eprintln!("Usage: droidpc-cli doctor [--images DIR]");
+            eprintln!("Usage: droidpc-cli doctor [--images DIR] | launch");
             ExitCode::from(2)
         }
     }

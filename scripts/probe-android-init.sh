@@ -16,6 +16,13 @@ case "${DROIDPC_PROBE_WINDOW:-0}" in
     *) echo "DROIDPC_PROBE_WINDOW must be 0 or 1" >&2; exit 1 ;;
 esac
 
+window_backend=${DROIDPC_WINDOW_BACKEND:-rust}
+case "$window_backend" in
+    rust|screenshots) ;;
+    *) echo "DROIDPC_WINDOW_BACKEND must be rust or screenshots" >&2; exit 1 ;;
+esac
+window_binary=$(pwd -P)/target/release/droidpc-window
+
 if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
     echo "Could not set the probe's locked-memory limit to 1 GiB" >&2
     exit 1
@@ -87,10 +94,17 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
-    /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
-        echo "Window mode requires Python GTK 3 bindings" >&2
-        exit 1
-    }
+    if [ "$window_backend" = rust ]; then
+        if [ ! -x "$window_binary" ]; then
+            echo "Build the Rust window first: cargo build --release -p droidpc-window" >&2
+            exit 1
+        fi
+    else
+        /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
+            echo "Screenshot mode requires Python GTK 3 bindings" >&2
+            exit 1
+        }
+    fi
     command -v runuser >/dev/null || {
         echo "Window mode requires runuser" >&2
         exit 1
@@ -413,6 +427,19 @@ else
 fi
 SH
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    if [ "$window_backend" = rust ]; then
+        cat > "$tmp/stream-screen.sh" <<'SH'
+#!/system/bin/sh
+exec 2>/data/droidpc-capture.log
+exec >/data/droidpc-screen.pipe
+while true; do
+    if ! /system/bin/screencap; then
+        echo 'Android raw screen capture failed; retrying' >&2
+        sleep 1
+    fi
+done
+SH
+    else
     cat > "$tmp/stream-screen.sh" <<'SH'
 #!/system/bin/sh
 while true; do
@@ -423,6 +450,7 @@ while true; do
     sleep 0.5
 done
 SH
+    fi
     cat > "$tmp/read-input.sh" <<'SH'
 #!/system/bin/sh
 while read -r action a b c d duration; do
@@ -436,6 +464,10 @@ while read -r action a b c d duration; do
                 *[!0-9:]*|:*|*::*|*:) continue ;;
             esac
             /system/bin/input swipe "$a" "$b" "$c" "$d" "$duration"
+            ;;
+        text)
+            [ -n "$a" ] && [ -z "$b$c$d$duration" ] || continue
+            /system/bin/input text "$a"
             ;;
         key)
             case "$a" in ''|*[!0-9]*) continue ;; esac
@@ -629,14 +661,22 @@ if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
     set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    setsid runuser -u "$SUDO_USER" -- env \
-        XDG_RUNTIME_DIR="$guest_runtime_dir" \
-        WAYLAND_DISPLAY="$wayland_display" \
-        /usr/bin/python3 "$root/scripts/android-window.py" \
-        "$data_dir/droidpc-live-frame.png" "$input_fifo" \
-        > "$tmp/window.log" 2>&1 &
+    if [ "$window_backend" = rust ]; then
+        setsid runuser -u "$SUDO_USER" -- env \
+            XDG_RUNTIME_DIR="$guest_runtime_dir" WAYLAND_DISPLAY="$wayland_display" \
+            DROIDPC_WINDOW_FPS="${DROIDPC_WINDOW_FPS:-60}" \
+            "$window_binary" "$stream_fifo" "$input_fifo" \
+            > "$tmp/window.log" 2>&1 &
+    else
+        setsid runuser -u "$SUDO_USER" -- env \
+            XDG_RUNTIME_DIR="$guest_runtime_dir" WAYLAND_DISPLAY="$wayland_display" \
+            /usr/bin/python3 "$root/scripts/android-window.py" \
+            "$data_dir/droidpc-live-frame.png" "$input_fifo" \
+            > "$tmp/window.log" 2>&1 &
+    fi
     viewer_pid=$!
     echo "Window log: $tmp/window.log"
+    echo "Capture log: $data_dir/droidpc-capture.log"
     sleep 1
     if ! kill -0 "$viewer_pid" 2>/dev/null; then
         cat "$tmp/window.log" >&2

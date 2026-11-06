@@ -1,3 +1,3 @@
 [workspace]
-members = ["crates/droidpc-cli", "crates/droidpc-container"]
+members = ["crates/droidpc-cli", "crates/droidpc-container", "crates/droidpc-window"]
 resolver = "3"

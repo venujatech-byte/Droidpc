@@ -55,7 +55,7 @@ class FinalStateProbeTests(unittest.TestCase):
                   / 'probe-android-init.sh').read_text()
         helper = source.split(
             'cat > "$tmp/read-input.sh" <<\'SH\'\n', 1
-        )[1].split('\nSH\nfi\n', 1)[0]
+        )[1].split('\nSH\n', 1)[0]
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -94,8 +94,8 @@ key 4; touch {injection_marker}
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()
         helper = source.split(
-            'cat > "$tmp/capture-screen.sh" <<SH\n', 1
-        )[1].split('\nSH\n', 1)[0]
+            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 2
+        )[2].split('\nSH\n', 1)[0]
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -111,9 +111,7 @@ echo $((count + 1)) > "$FRAME_COUNT"
 printf 'PNG-%s' "$count" > "$2"
 ''')
             screencap.chmod(0o755)
-            helper = helper.replace(
-                '${frame_file##*/}', 'droidpc-window-test.png')
-            helper = helper.replace('/data/droidpc-window-test.png',
+            helper = helper.replace('/data/droidpc-live-frame.png',
                                     str(frame))
             helper = helper.replace('/system/bin/screencap', 'screencap')
             script = root / 'capture.sh'
@@ -127,6 +125,39 @@ printf 'PNG-%s' "$count" > "$2"
             self.assertEqual(result.returncode, -15)
             self.assertEqual(frame.read_bytes(), b'PNG-1')
             self.assertEqual(frame.stat().st_mode & 0o777, 0o644)
+
+    def test_raw_capture_stream_has_no_png_or_file_polling(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\n', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            capture = root / 'screencap'
+            capture.write_text('''#!/usr/bin/python3
+import os, signal, sys
+from pathlib import Path
+count = Path(os.environ['CAPTURE_COUNT'])
+n = int(count.read_text()) if count.exists() else 0
+if n == 2:
+    os.kill(os.getppid(), signal.SIGTERM)
+    sys.exit(1)
+assert len(sys.argv) == 1
+count.write_text(str(n + 1))
+sys.stdout.buffer.write(bytes([n]) * 20)
+''')
+            capture.chmod(0o755)
+            output = root / 'frames'
+            script = root / 'capture.sh'
+            script.write_text(helper.replace('/system/bin/screencap', str(capture))
+                              .replace('/data/droidpc-screen.pipe', str(output))
+                              .replace('/data/droidpc-capture.log', str(root / 'capture.log')))
+            result = subprocess.run(['/bin/sh', str(script)], env=os.environ | {
+                'CAPTURE_COUNT': str(root / 'count'),
+            }, timeout=3)
+            self.assertEqual(result.returncode, -15)
+            self.assertEqual(output.read_bytes(), bytes(20) + bytes([1]) * 20)
 
     def test_completed_boot_captures_a_screenshot(self):
         source = (Path(__file__).resolve().parents[1]
