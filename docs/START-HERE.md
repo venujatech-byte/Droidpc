@@ -449,3 +449,22 @@ The mount is private to the launcher and released during cleanup. Host verificat
 confirmed the new camera mounts omit `nodev` and guest root can open both video
 nodes. Run `--verify` to check HAL registration and actual capture. `--camera-access`
 prints provider credentials, device permissions and device mount flags.
+
+### Camera buffer compatibility
+
+The image's GBM importer misinterpreted packed one-dimensional JPEG/YUV buffers
+as very wide single-row textures. A local compatibility library reconstructs the
+4096-byte row geometry from the DMA buffer size and maps that physical layout.
+Other allocation and format operations delegate to the image's original wrapper.
+Both 32-bit camera providers and 64-bit consumers are covered. A read-only vendor
+library overlay preserves the original image files and verified image hashes.
+Startup checks the wrapper's eight-function ABI before applying the overlay.
+
+`scripts/build-gbm-compat.sh` builds both libraries using the Android NDK from
+`ANDROID_NDK_HOME` or the SDK's `ndk` directory. Startup builds them if missing or
+older than the native source/header. The supported packed-buffer limit is 64 MiB.
+
+Host verification on 2026-11-06 confirmed `HTTPS_OK 204` and
+`CAMERA_FRAME_OK 640x360 bytes=20438` through the Android diagnostic app. Camera
+ID `100` is registered as an external camera. This verifies one still frame;
+continuous preview, video recording and suspend/resume require separate checks.

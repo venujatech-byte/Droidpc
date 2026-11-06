@@ -118,6 +118,9 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
+    if [ -n "$render_node" ] && { [ ! -f "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ ! -f "$root/target/gbm-compat/lib64/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.c" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ] || [ "$root/scripts/native/gbm_compat.h" -nt "$root/target/gbm-compat/lib/libdroidpc_gbm_wrapper.so" ]; }; then
+        runuser -u "$SUDO_USER" -- "$root/scripts/build-gbm-compat.sh"
+    fi
     if [ "$window_backend" = rust ]; then
         if [ ! -f "$root/target/droidpc-input.jar" ] || [ "$root/scripts/android/DroidpcInput.java" -nt "$root/target/droidpc-input.jar" ]; then
             runuser -u "$SUDO_USER" -- "$root/scripts/build-android-input.sh"
@@ -332,7 +335,9 @@ cat > "$tmp/capture-devices.sh" <<'SH'
 #!/system/bin/sh
 exec /system/bin/logcat -b all -v threadtime -r 256 -n 1 -f /data/droidpc-devices.log \
     'CamPrvdr@2.4-external:V' 'CamPrvdr@2.7-external:V' 'ExtCamDev@3.4:V' \
-    'ExtCamDev@3.5:V' 'CameraProviderManager:V' 'EthernetTracker:V' \
+    'ExtCamDev@3.5:V' 'ExtCamDevSsn@3.4:V' 'ExtCamDevSsn@3.5:V' \
+    'HandleImporter:V' 'Gralloc4:V' 'cros_gralloc:V' 'minigbm:V' \
+    'Camera3-Device:V' 'CameraService:V' 'CameraProviderManager:V' 'EthernetTracker:V' \
     'EthernetNetworkFactory:V' 'IpClient:V' 'DhcpClient:V' 'Netd:E' 'BpfHandler:E' '*:S'
 SH
 cat > "$tmp/capture-logcat.sh" <<'SH'
@@ -709,6 +714,21 @@ set -- "$@" \
         --bind "$data_dir" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ] && [ -n "$render_node" ]; then
+    for abi in lib lib64; do
+        case "$abi" in lib) expected_size=32 ;; lib64) expected_size=64 ;; esac
+        original=$tmp/vendor/$abi/libgbm_mesa_wrapper.so
+        size=$(readelf --wide --symbols "$original" | awk '$4 == "OBJECT" && $8 == "gbm_ops" {print $3; exit}')
+        if [ "$size" != "$expected_size" ]; then
+            echo "Unsupported $abi GBM wrapper ABI; expected an eight-function table" >&2
+            exit 1
+        fi
+        mkdir "$tmp/gbm-$abi"
+        cp "$original" "$tmp/gbm-$abi/libdroidpc_gbm_original.so"
+        cp "$root/target/gbm-compat/$abi/libdroidpc_gbm_wrapper.so" "$tmp/gbm-$abi/libgbm_mesa_wrapper.so"
+        set -- "$@" --overlay-src "$tmp/vendor/$abi" --overlay-src "$tmp/gbm-$abi" --ro-overlay "/vendor/$abi"
+    done
+fi
 if [ "$network_enabled" = 1 ]; then
     set -- "$@" --ro-bind "$root/scripts/android-network-setup.sh" /tmp/droidpc-network-setup.sh
 fi

@@ -39,6 +39,17 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
     set -- runcon -t droidpc_probe_t -- "$@"
 fi
 
+if [ "$mode" = --camera-errors ]; then
+    timeout --kill-after=2s 10s "$@" /system/bin/sh -c '
+        for pid in $(pidof android.hardware.camera.provider@2.7-external-service); do
+            echo "--- Unfiltered camera provider log: $pid ---"
+            logcat -d -b all -v threadtime --pid="$pid" | tail -100
+        done
+        logcat -d -b all -v threadtime | grep -Ei "minigbm|Failed to lock|ExtCam|CamPrvdr|HandleImporter|[Mm]apper|[Gg]ralloc|Camera3-|CameraService|CameraProviderManager|v4l2|ashmem|FMQ|mmap|dma.?buf" | tail -120
+    '
+    exit 0
+fi
+
 if [ "$mode" = --camera-access ]; then
     timeout --kill-after=2s 10s "$@" /system/bin/sh -c '
         ls -lnZ /dev/video* /dev/media* 2>/dev/null
@@ -94,7 +105,7 @@ if [ "$mode" = --verify ]; then
             [ ! -f "$device_log" ] || tail -50 "$device_log"
         done
         timeout --kill-after=2s 5s "$@" /system/bin/sh -c '
-            logcat -d -v threadtime -s "CamPrvdr@2.4-external:V" "CamPrvdr@2.7-external:V" "ExtCamDev@3.4:V" "ExtCamDev@3.5:V" "CameraProviderManager:V" "*:S" | tail -80
+            logcat -d -v threadtime -s "CamPrvdr@2.4-external:V" "CamPrvdr@2.7-external:V" "ExtCamDev@3.4:V" "ExtCamDev@3.5:V" "ExtCamDevSsn@3.4:V" "ExtCamDevSsn@3.5:V" "Camera3-Device:V" "CameraService:V" "CameraProviderManager:V" "*:S" | tail -80
             dumpsys media.camera | head -60
         ' || true
     fi
