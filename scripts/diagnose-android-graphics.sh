@@ -47,6 +47,8 @@ if [ "$mode" = --camera-access ]; then
             grep -E "^(Name|Uid|Gid|Groups|CapEff|CapBnd):" /proc/$pid/status
             cat /proc/$pid/attr/current
         done
+        echo "--- Camera device mount flags ---"
+        grep -E " /dev/(video[0-9]+|media[0-9]+) " /proc/self/mountinfo
         id
         for node in /dev/video*; do
             if (exec 3<>"$node"); then echo "ROOT_OPEN_OK=$node"; fi

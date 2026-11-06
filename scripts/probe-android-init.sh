@@ -186,6 +186,7 @@ cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
     umount "$tmp/dri" 2>/dev/null || true
+    umount "$tmp/camera" 2>/dev/null || true
     if [ -n "$display_config" ]; then
         rm -f -- "$display_config"
     fi
@@ -288,13 +289,15 @@ if [ -n "$render_node" ]; then
     fi
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    mkdir "$tmp/camera"
+    # The host /tmp may be nodev; device bind mounts retain source restrictions.
+    mount -t tmpfs -o mode=0755,nosuid,noexec,dev tmpfs "$tmp/camera"
     for camera_node in /dev/video[0-9]* /dev/media[0-9]*; do
         [ -c "$camera_node" ] || continue
         camera_name=${camera_node##*/}
         camera_numbers=$(stat -c '%t:%T' "$camera_node")
         camera_major=$((0x${camera_numbers%:*}))
         camera_minor=$((0x${camera_numbers#*:}))
-        mkdir -p "$tmp/camera"
         mknod "$tmp/camera/$camera_name" c "$camera_major" "$camera_minor"
         chown 0:1006 "$tmp/camera/$camera_name"
         chmod 0660 "$tmp/camera/$camera_name"

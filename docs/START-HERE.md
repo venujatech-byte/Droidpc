@@ -441,7 +441,11 @@ the initialization failure.
 
 The host verification on 2026-11-06 confirmed an Android app received a validated
 Ethernet default network, the expected DHCP gateway/DNS, and `HTTPS_OK 204`.
-Camera verification remains incomplete: the HAL reported `Permission denied`
-opening the passed video nodes and exposed no camera IDs. Use
-`sudo ./scripts/diagnose-android-graphics.sh --camera-access` to compare the
-provider credentials with the live device ownership before changing permissions.
+Camera initially reported `Permission denied` opening the passed video nodes,
+even for guest root with correct ownership. The nodes inherited `nodev` from the
+host temporary directory. Camera nodes now use a dedicated tmpfs mounted with
+`dev,nosuid,noexec`, preserving `root:camera` ownership and `0660` permissions.
+The mount is private to the launcher and released during cleanup. Host verification
+confirmed the new camera mounts omit `nodev` and guest root can open both video
+nodes. Run `--verify` to check HAL registration and actual capture. `--camera-access`
+prints provider credentials, device permissions and device mount flags.
