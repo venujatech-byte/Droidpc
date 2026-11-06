@@ -29,3 +29,24 @@ class NetworkLaunchTests(unittest.TestCase):
                     self.assertIn('helper:0:0', output)
                     self.assertIn(f'helper:{root}/network.ns', output)
                     self.assertIn('helper:--config-net', output)
+
+    def test_network_setup_waits_for_guest_filesystem_and_detects_exit(self):
+        source = (Path(__file__).resolve().parents[1] / 'probe-android-init.sh').read_text()
+        start = source.index('        attempt=0\n        while [ ! -f "/proc/$guest_init/root/tmp/droidpc-network-setup.sh" ]')
+        end = source.index('        if [ "$(readlink /proc/self/ns/net)', start)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'tmp').mkdir()
+            (root / 'system/bin').mkdir(parents=True)
+            linker = root / 'apex/com.android.runtime/bin/linker64'
+            linker.parent.mkdir(parents=True)
+            linker.touch()
+            linker.chmod(0o700)
+            loop = source[start:end].replace('/proc/$guest_init/root', str(root))
+            alive = f'guest_pid={os.getpid()}\n'
+            prepare = f'(sleep 0.1; touch "{root}/tmp/droidpc-network-setup.sh"; touch "{root}/system/bin/sh"; chmod 700 "{root}/system/bin/sh") &\n'
+            subprocess.run(['sh', '-eu', '-c', alive + prepare + loop], check=True, timeout=3)
+            (root / 'system/bin/sh').unlink()
+            failed = subprocess.run(['sh', '-eu', '-c', 'guest_pid=99999999\n' + loop], capture_output=True, text=True, timeout=3)
+            self.assertEqual(failed.returncode, 1)
+            self.assertIn('Guest filesystem was not ready', failed.stderr)

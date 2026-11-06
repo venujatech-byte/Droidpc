@@ -32,7 +32,7 @@ fi
 
 printf 'DROIDPC_GUEST_HOST_PID=%s\n' "$found"
 guest=/proc/$found/root
-set -- nsenter --target "$found" --mount --pid --net --
+set -- nsenter --target "$found" --mount --pid --net --root --wdns=/ --
 if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
     set -- runcon -t droidpc_probe_t -- "$@"
 fi
@@ -75,7 +75,7 @@ printf '\n--- Init graphics messages ---\n'
 grep -Ei 'surfaceflinger|hwcomposer|graphics.composer|droidpc-screen' "$guest/dev/kmsg" | tail -40 || true
 for name in surfaceflinger android.hardware.graphics.composer@2.1-service; do
     printf '\n--- Native stacks: %s ---\n' "$name"
-    timeout --signal=TERM --kill-after=2s 15s nsenter --target "$found" --mount --pid -- \
+    timeout --signal=TERM --kill-after=2s 15s nsenter --target "$found" --mount --pid --root --wdns=/ -- \
         /system/bin/sh -c '
             pid=$(pidof "$1")
             if [ -z "$pid" ]; then echo "Process not running: $1"; exit 1; fi

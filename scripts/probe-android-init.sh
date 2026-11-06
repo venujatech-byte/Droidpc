@@ -783,6 +783,15 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         case "$guest_init" in
             ''|*[!0-9]*) echo "Could not identify the guest network namespace" >&2; exit 1 ;;
         esac
+        attempt=0
+        while [ ! -f "/proc/$guest_init/root/tmp/droidpc-network-setup.sh" ] || [ ! -x "/proc/$guest_init/root/system/bin/sh" ] || [ ! -x "/proc/$guest_init/root/apex/com.android.runtime/bin/linker64" ]; do
+            if [ "$attempt" -ge 50 ] || ! kill -0 "$guest_pid" 2>/dev/null; then
+                echo "Guest filesystem was not ready for network setup" >&2
+                exit 1
+            fi
+            sleep 0.1
+            attempt=$((attempt + 1))
+        done
         if [ "$(readlink /proc/self/ns/net)" = "$(readlink "/proc/$guest_init/ns/net")" ]; then
             echo "Refusing to configure the host network namespace" >&2
             exit 1
@@ -792,7 +801,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
             echo "No host DNS resolver configured" >&2
             exit 1
         fi
-        set -- nsenter --target "$guest_init" --mount --pid --net -- \
+        set -- nsenter --target "$guest_init" --mount --pid --net --root --wdns=/ -- \
             /system/bin/sh /tmp/droidpc-network-setup.sh
         if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
             set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
