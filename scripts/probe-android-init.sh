@@ -87,8 +87,8 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
-    /usr/bin/python3 -c 'import sys, gi; gi.require_version("Gtk", "3.0"); gi.require_version("Gst", "1.0"); from gi.repository import Gtk, Gst; Gst.init(None); required=("fdsrc", "h264parse", "decodebin", "queue", "glupload", "glcolorconvert", "gtkglsink"); missing=[name for name in required if Gst.ElementFactory.find(name) is None]; missing and sys.exit("missing GStreamer elements: " + ", ".join(missing))' || {
-        echo "Window mode requires Python GTK/GStreamer bindings and GL video plugins" >&2
+    /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
+        echo "Window mode requires Python GTK 3 bindings" >&2
         exit 1
     }
     command -v runuser >/dev/null || {
@@ -415,9 +415,12 @@ SH
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     cat > "$tmp/stream-screen.sh" <<'SH'
 #!/system/bin/sh
-exec >/data/droidpc-screen.pipe
 while true; do
-    /system/bin/screenrecord --output-format=h264 --bit-rate 8000000 - || sleep 1
+    if /system/bin/screencap -p /data/droidpc-live-frame.png.tmp; then
+        chmod 0644 /data/droidpc-live-frame.png.tmp
+        mv -f /data/droidpc-live-frame.png.tmp /data/droidpc-live-frame.png
+    fi
+    sleep 0.5
 done
 SH
     cat > "$tmp/read-input.sh" <<'SH'
@@ -630,9 +633,10 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         XDG_RUNTIME_DIR="$guest_runtime_dir" \
         WAYLAND_DISPLAY="$wayland_display" \
         /usr/bin/python3 "$root/scripts/android-window.py" \
-        "$stream_fifo" "$input_fifo" \
+        "$data_dir/droidpc-live-frame.png" "$input_fifo" \
         > "$tmp/window.log" 2>&1 &
     viewer_pid=$!
+    echo "Window log: $tmp/window.log"
     sleep 1
     if ! kill -0 "$viewer_pid" 2>/dev/null; then
         cat "$tmp/window.log" >&2

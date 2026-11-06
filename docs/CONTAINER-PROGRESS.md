@@ -111,7 +111,7 @@ allocation still need runtime coverage.
 
 The next implementation milestone toward a live window is a supervised,
 persistent Android session with bounded stop/recovery. The experimental
-`DROIDPC_PROBE_WINDOW=1` mode streams Android H.264 into a GTK/OpenGL window,
+`DROIDPC_PROBE_WINDOW=1` mode displays Android screenshots in a GTK window,
 forwards taps/swipes/basic navigation keys through a validated guest input
 helper, and stops the guest on window close or Ctrl-C. The privileged
 guest/window/input run remains unverified. Window mode preserves guest data in

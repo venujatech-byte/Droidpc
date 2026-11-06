@@ -185,12 +185,9 @@ sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
   ./scripts/probe-android-init-selinux.sh
 ```
 
-The window streams Android H.264 display capture and renders it through
-GStreamer's OpenGL GTK sink. It follows the capture rate (up to the display's
-supported capture rate); the decoder uses hardware acceleration when an
-available GStreamer decoder provides it. A two-frame queue limits buffering.
-Clicks become taps, drags become swipes, and keyboard input is forwarded to
-Android. Android soft input methods are disabled for this desktop session.
+The window displays Android screenshots twice per second and forwards clicks,
+drags, and keyboard input. Android soft input methods are disabled in desktop
+mode. The video stream path is deferred until it can be verified on the host.
 The guest graphics composer also uses the host Wayland socket to initialize
 SurfaceFlinger.
 Closing the window or pressing Ctrl+C in that terminal stops the guest. Android
