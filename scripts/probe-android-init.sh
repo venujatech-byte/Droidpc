@@ -31,6 +31,7 @@ system=$(realpath "$root/os_images/selected/system.img")
 vendor=$(realpath "$root/os_images/selected/vendor.img")
 render_node=
 drm_card_name=
+camera_nodes=
 if [ -c /dev/dri/renderD128 ]; then
     render_node=$(realpath /dev/dri/renderD128)
     render_device=$(readlink -f /sys/class/drm/renderD128/device 2>/dev/null || true)
@@ -51,8 +52,8 @@ guest_runtime_path=${guest_runtime_dir#/run/}
 viewer_pid=
 guest_pid=
 monitor_pid=
+stream_fifo=
 input_fifo=
-frame_file=
 case "$wayland_display" in
     '') ;;
     /*)
@@ -86,8 +87,8 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
-    /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
-        echo "Window mode requires Python GTK 3 bindings" >&2
+    /usr/bin/python3 -c 'import sys, gi; gi.require_version("Gtk", "3.0"); gi.require_version("Gst", "1.0"); from gi.repository import Gtk, Gst; Gst.init(None); required=("filesrc", "h264parse", "decodebin", "queue", "glupload", "glcolorconvert", "gtkglsink"); missing=[name for name in required if Gst.ElementFactory.find(name) is None]; missing and sys.exit("missing GStreamer elements: " + ", ".join(missing))' || {
+        echo "Window mode requires Python GTK/GStreamer bindings and GL video plugins" >&2
         exit 1
     }
     command -v runuser >/dev/null || {
@@ -141,8 +142,8 @@ cleanup() {
     if [ -n "$input_fifo" ]; then
         rm -f -- "$input_fifo"
     fi
-    if [ -n "$frame_file" ]; then
-        rm -f -- "$frame_file" "$frame_file.tmp"
+    if [ -n "$stream_fifo" ]; then
+        rm -f -- "$stream_fifo"
     fi
     rm -rf -- "$tmp"
 }
@@ -171,26 +172,31 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         "$user_home/"*) ;;
         *) echo "Android data path resolves outside the user's home" >&2; exit 1 ;;
     esac
-    frame_file=$data_dir/droidpc-window-$$.png
 else
     mkdir -p "$data_dir"
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     attempt=0
     while [ "$attempt" -lt 1000 ]; do
+        stream_fifo=$guest_runtime_dir/droidpc-screen-$$-$attempt.pipe
         input_fifo=$guest_runtime_dir/droidpc-input-$$-$attempt.pipe
-        if mkfifo "$input_fifo" 2>/dev/null; then
-            break
+        if mkfifo "$stream_fifo" 2>/dev/null; then
+            if mkfifo "$input_fifo" 2>/dev/null; then
+                break
+            fi
+            rm -f -- "$stream_fifo"
         fi
+        stream_fifo=
         input_fifo=
         attempt=$((attempt + 1))
     done
-    if [ -z "$input_fifo" ]; then
-        echo "Could not create a unique Android input FIFO" >&2
+    if [ -z "$stream_fifo" ] || [ -z "$input_fifo" ]; then
+        echo "Could not create unique Android window FIFOs" >&2
         exit 1
     fi
-    chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" "$input_fifo"
-    chmod 0600 "$input_fifo"
+    chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" \
+        "$stream_fifo" "$input_fifo"
+    chmod 0600 "$stream_fifo" "$input_fifo"
 fi
 if [ -n "$render_node" ]; then
     mkdir "$tmp/dri"
@@ -224,6 +230,20 @@ if [ -n "$render_node" ]; then
     if [ -n "$drm_card_name" ]; then
         prepare_drm_node "$drm_card_name"
     fi
+fi
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
+    for camera_node in /dev/video[0-9]* /dev/media[0-9]*; do
+        [ -c "$camera_node" ] || continue
+        camera_name=${camera_node##*/}
+        camera_numbers=$(stat -c '%t:%T' "$camera_node")
+        camera_major=$((0x${camera_numbers%:*}))
+        camera_minor=$((0x${camera_numbers#*:}))
+        mkdir -p "$tmp/camera"
+        mknod "$tmp/camera/$camera_name" c "$camera_major" "$camera_minor"
+        chown 0:1047 "$tmp/camera/$camera_name"
+        chmod 0660 "$tmp/camera/$camera_name"
+        camera_nodes="$camera_nodes $camera_name"
+    done
 fi
 touch "$tmp/kmsg"
 debugfs -R 'cat /system/etc/ueventd.rc' "$system" 2>/dev/null \
@@ -393,14 +413,11 @@ else
 fi
 SH
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    cat > "$tmp/capture-screen.sh" <<SH
+    cat > "$tmp/stream-screen.sh" <<'SH'
 #!/system/bin/sh
+exec >/data/droidpc-screen.pipe
 while true; do
-    if /system/bin/screencap -p /data/${frame_file##*/}.tmp; then
-        chmod 0644 /data/${frame_file##*/}.tmp
-        mv -f /data/${frame_file##*/}.tmp /data/${frame_file##*/}
-    fi
-    sleep 0.5
+    /system/bin/screenrecord --output-format=h264 --bit-rate 8000000 - || sleep 1
 done
 SH
     cat > "$tmp/read-input.sh" <<'SH'
@@ -423,6 +440,13 @@ while read -r action a b c d duration; do
             ;;
     esac
 done < /data/droidpc-input.pipe
+SH
+    cat > "$tmp/disable-ime.sh" <<'SH'
+#!/system/bin/sh
+/system/bin/settings put secure show_ime_with_hard_keyboard 0
+for method in $(/system/bin/ime list -s); do
+    /system/bin/ime disable "$method"
+done
 SH
 fi
 /usr/bin/python3 "$root/scripts/prepare_android_vendor_properties.py" \
@@ -479,7 +503,11 @@ on property:sys.boot_completed=1
 RC
     cat >> "$tmp/probe.rc" <<'RC'
 on property:sys.boot_completed=1
-    exec_background -- /system/bin/sh /tmp/droidpc-capture-screen.sh
+    exec_background -- /system/bin/sh /tmp/droidpc-stream-screen.sh
+RC
+    cat >> "$tmp/probe.rc" <<'RC'
+on property:sys.boot_completed=1
+    exec_background -- /system/bin/sh /tmp/droidpc-disable-ime.sh
 RC
 fi
 
@@ -537,6 +565,11 @@ set -- "$@" \
         --ro-bind "$tmp/vendor-properties.prop" "$vendor_property_path" \
         --proc /proc --dev /dev \
         --dir /dev/socket --tmpfs /tmp
+if [ -n "$camera_nodes" ]; then
+    for camera_name in $camera_nodes; do
+        set -- "$@" --dev-bind "$tmp/camera/$camera_name" "/dev/$camera_name"
+    done
+fi
 if [ -n "$render_node" ]; then
     # Regular binds/remount-ro add nodev; these are disposable guest nodes.
     set -- "$@" --dir /dev/dri --dev-bind "$tmp/dri" /dev/dri
@@ -548,9 +581,10 @@ if [ -n "$wayland_socket" ]; then
         --setenv WAYLAND_DISPLAY "$wayland_display"
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    set -- "$@" --ro-bind "$tmp/capture-screen.sh" \
-        /tmp/droidpc-capture-screen.sh \
-        --ro-bind "$tmp/read-input.sh" /tmp/droidpc-read-input.sh
+    set -- "$@" --ro-bind "$tmp/stream-screen.sh" \
+        /tmp/droidpc-stream-screen.sh \
+        --ro-bind "$tmp/read-input.sh" /tmp/droidpc-read-input.sh \
+        --ro-bind "$tmp/disable-ime.sh" /tmp/droidpc-disable-ime.sh
 fi
 set -- "$@" \
         --ro-bind "$tmp/read-cgroup.sh" /tmp/droidpc-read-cgroup.sh \
@@ -568,7 +602,9 @@ set -- "$@" \
         --tmpfs /apex \
         --tmpfs /linkerconfig
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    set -- "$@" --bind "$input_fifo" /data/droidpc-input.pipe
+    set -- "$@" \
+        --bind "$stream_fifo" /data/droidpc-screen.pipe \
+        --bind "$input_fifo" /data/droidpc-input.pipe
 fi
 if [ -n "$render_node" ]; then
     for subtree in dev devices bus class; do
@@ -594,7 +630,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         XDG_RUNTIME_DIR="$guest_runtime_dir" \
         WAYLAND_DISPLAY="$wayland_display" \
         /usr/bin/python3 "$root/scripts/android-window.py" \
-        "$frame_file" "$input_fifo" \
+        "$stream_fifo" "$input_fifo" \
         > "$tmp/window.log" 2>&1 &
     viewer_pid=$!
     sleep 1
@@ -634,6 +670,11 @@ if [ -n "$render_node" ]; then
     echo "HOST_RENDER_NODE_AVAILABLE"
 else
     echo "HOST_RENDER_NODE_MISSING"
+fi
+if [ -n "$camera_nodes" ]; then
+    echo "HOST_CAMERA_NODES_PASSED=${camera_nodes# }"
+else
+    echo "HOST_CAMERA_NODES_MISSING"
 fi
 if [ -n "$drm_card_name" ]; then
     echo "HOST_DRM_CARD_AVAILABLE"

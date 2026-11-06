@@ -8,8 +8,8 @@ import gi
 
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
-gi.require_version('GdkPixbuf', '2.0')
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk
+gi.require_version('Gst', '1.0')
+from gi.repository import Gdk, GLib, Gst, Gtk
 
 
 KEYCODES = {
@@ -28,16 +28,29 @@ KEYCODES = {
 
 
 class AndroidWindow:
-    def __init__(self, frame_path, input_fifo):
-        self.frame_path = frame_path
+    def __init__(self, stream_fifo, input_fifo):
         self.input_fifo = input_fifo
         self.input_fd = None
-        self.frame_mtime_ns = None
-        self.frame = None
         self.frame_width = 0
         self.frame_height = 0
         self.pointer_start = None
         self.pointer_time = 0.0
+        self.pipeline = Gst.parse_launch(
+            f'filesrc location="{stream_fifo}" do-timestamp=true '
+            '! h264parse config-interval=-1 ! decodebin '
+            '! queue max-size-buffers=2 max-size-bytes=0 max-size-time=0 '
+            'leaky=downstream ! glupload ! glcolorconvert '
+            '! gtkglsink name=video_sink sync=true'
+        )
+        self.video_sink = self.pipeline.get_by_name('video_sink')
+        self.video_sink.set_property('force-aspect-ratio', True)
+        self.video_widget = self.video_sink.get_property('widget')
+        self.video_sink.get_static_pad('sink').add_probe(
+            Gst.PadProbeType.EVENT_DOWNSTREAM, self.read_video_caps
+        )
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect('message', self.pipeline_message)
         self.window = Gtk.Window(title='Droidpc Android')
         self.window.set_default_size(960, 540)
         self.event_box = Gtk.EventBox()
@@ -48,19 +61,38 @@ class AndroidWindow:
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.KEY_PRESS_MASK
         )
-        self.image = Gtk.Image()
-        self.image.set_hexpand(True)
-        self.image.set_vexpand(True)
-        self.event_box.add(self.image)
+        self.video_widget.set_hexpand(True)
+        self.video_widget.set_vexpand(True)
+        self.event_box.add(self.video_widget)
         self.event_box.connect('button-press-event', self.pointer_press)
         self.event_box.connect('button-release-event', self.pointer_release)
         self.event_box.connect('key-press-event', self.key_press)
         self.window.add(self.event_box)
-        self.image.connect('size-allocate', self.resize_frame)
         self.window.connect('destroy', Gtk.main_quit)
         self.window.show_all()
         self.event_box.grab_focus()
-        GLib.timeout_add(200, self.refresh_frame)
+        if self.pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+            raise RuntimeError('GStreamer could not start the Android video pipeline')
+
+    def read_video_caps(self, _pad, info):
+        event = info.get_event()
+        if event.type == Gst.EventType.CAPS:
+            structure = event.parse_caps().get_structure(0)
+            self.frame_width = structure.get_value('width')
+            self.frame_height = structure.get_value('height')
+        return Gst.PadProbeReturn.OK
+
+    def pipeline_message(self, _bus, message):
+        if message.type == Gst.MessageType.ERROR:
+            error, detail = message.parse_error()
+            print(f'Android video pipeline: {error}: {detail}', file=sys.stderr)
+            Gtk.main_quit()
+        elif message.type == Gst.MessageType.EOS:
+            print('Android video stream ended.', file=sys.stderr)
+            Gtk.main_quit()
+
+    def stop(self):
+        self.pipeline.set_state(Gst.State.NULL)
 
     def send(self, command):
         if self.input_fd is None:
@@ -77,10 +109,10 @@ class AndroidWindow:
             self.input_fd = None
 
     def to_android(self, x, y):
-        if self.frame is None:
+        if not self.frame_width or not self.frame_height:
             return None
-        width = self.image.get_allocated_width()
-        height = self.image.get_allocated_height()
+        width = self.event_box.get_allocated_width()
+        height = self.event_box.get_allocated_height()
         frame_width = self.frame_width
         frame_height = self.frame_height
         scale = min(width / frame_width, height / frame_height)
@@ -91,18 +123,6 @@ class AndroidWindow:
         if x < 0 or y < 0 or x >= frame_width or y >= frame_height:
             return None
         return round(x), round(y)
-
-    def resize_frame(self, _widget, allocation):
-        if self.frame is None or allocation.width <= 0 or allocation.height <= 0:
-            return
-        scale = min(allocation.width / self.frame_width,
-                    allocation.height / self.frame_height)
-        frame = self.frame.scale_simple(
-            max(1, int(self.frame_width * scale)),
-            max(1, int(self.frame_height * scale)),
-            GdkPixbuf.InterpType.BILINEAR,
-        )
-        self.image.set_from_pixbuf(frame)
 
     def pointer_press(self, _widget, event):
         if event.button == 1:
@@ -141,29 +161,13 @@ class AndroidWindow:
             self.send(f'key {keycode}')
         return True
 
-    def refresh_frame(self):
-        try:
-            mtime_ns = os.stat(self.frame_path).st_mtime_ns
-        except OSError:
-            return True
-        if mtime_ns != self.frame_mtime_ns:
-            try:
-                frame = GdkPixbuf.Pixbuf.new_from_file(self.frame_path)
-                self.frame = frame
-                self.frame_width = frame.get_width()
-                self.frame_height = frame.get_height()
-                self.resize_frame(self.image, self.image.get_allocation())
-                self.frame_mtime_ns = mtime_ns
-            except Exception:
-                pass
-        return True
-
-
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        raise SystemExit('usage: android-window.py FRAME_PNG INPUT_FIFO')
+        raise SystemExit('usage: android-window.py SCREEN_FIFO INPUT_FIFO')
     initialized, _argv = Gtk.init_check()
     if not initialized:
         raise SystemExit('Android window: cannot connect to the desktop display')
-    AndroidWindow(sys.argv[1], sys.argv[2])
+    Gst.init(None)
+    window = AndroidWindow(sys.argv[1], sys.argv[2])
     Gtk.main()
+    window.stop()

@@ -176,17 +176,21 @@ state; use it only for diagnostics on a disposable host:
 sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
-To keep the diagnostic session running in a live Wayland window instead of
-capturing only one screenshot, install Python GTK 3 bindings, then run:
+To keep the diagnostic session running in a live Wayland window, install
+Python GTK 3 and GStreamer bindings plus the GStreamer H.264, OpenGL, and GTK
+plugins, then run:
 
 ```sh
 sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
   ./scripts/probe-android-init-selinux.sh
 ```
 
-The window refreshes from Android screenshots captured twice per second after
-boot completes. It forwards clicks as taps, drags as swipes, and basic keyboard
-navigation.
+The window streams Android H.264 display capture and renders it through
+GStreamer's OpenGL GTK sink. It follows the capture rate (up to the display's
+supported capture rate); the decoder uses hardware acceleration when an
+available GStreamer decoder provides it. A two-frame queue limits buffering.
+Clicks become taps, drags become swipes, and keyboard input is forwarded to
+Android. Android soft input methods are disabled for this desktop session.
 The guest graphics composer also uses the host Wayland socket to initialize
 SurfaceFlinger.
 Closing the window or pressing Ctrl+C in that terminal stops the guest. Android
@@ -219,11 +223,11 @@ presentation now pass in supplied runs. Reliable repeated boots, enforcing
 SELinux, cgroup delegation, and a production start/stop lifecycle remain
 required before calling this a working container.
 
-The `DROIDPC_PROBE_WINDOW=1` mode refreshes a GTK window from Android
-screenshots and leaves init running until Ctrl-C. The viewer forwards basic
-taps, swipes, and navigation keys through a restricted guest input helper. It
-preserves data under the user's home directory, but still uses the same broad
-diagnostic capabilities and is not the production runtime.
+The `DROIDPC_PROBE_WINDOW=1` mode streams H.264 into a GTK/OpenGL window and
+leaves init running until Ctrl-C. The viewer forwards taps, swipes, and keys
+through a restricted guest input helper. It preserves data under the user's
+home directory, but still uses the same broad diagnostic capabilities and is
+not the production runtime.
 
 Common output meanings:
 

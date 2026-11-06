@@ -19,7 +19,7 @@ device works or that Android has booted. The image pair stays unmodified.
 | `/dev/input/event*` | Keyboard, pointer and touchscreen events. | Add only selected input devices. |
 | `/dev/snd/*` | Sound playback and capture. | Add after core Android boot. |
 | `/dev/uhid`, `/dev/uinput` | Virtual HID and input injection. | Optional input feature; not needed for first boot. |
-| `/dev/video*` | External camera capture. | Optional camera feature. |
+| `/dev/video*`, `/dev/media*` | External camera capture through the image's camera provider. | Window mode passes only detected camera nodes. |
 | `/dev/tun` | Tunnel interface used by VPN services. | Optional; networking design decides. |
 | `/dev/kvm`, `/dev/vhost-vsock` | Virtualization interfaces. | Not part of the initial container goal. |
 
