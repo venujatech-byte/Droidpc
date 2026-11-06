@@ -29,6 +29,10 @@ class NetworkLaunchTests(unittest.TestCase):
                     self.assertIn('helper:0:0', output)
                     self.assertIn(f'helper:{root}/network.ns', output)
                     self.assertIn('helper:--config-net', output)
+                    self.assertIn('helper:--ipv4-only', output)
+                    self.assertIn('helper:10.0.2.15', output)
+                    self.assertIn('helper:10.0.2.2', output)
+                    self.assertNotIn('helper:--address\nhelper:198.18.', output)
 
     def test_network_setup_waits_for_guest_filesystem_and_detects_exit(self):
         source = (Path(__file__).resolve().parents[1] / 'probe-android-init.sh').read_text()

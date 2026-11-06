@@ -325,6 +325,13 @@ if ! grep -q '^service zygote ' "$tmp/zygote.rc"; then
     echo "Could not prepare temporary zygote service configuration" >&2
     exit 1
 fi
+cat > "$tmp/capture-devices.sh" <<'SH'
+#!/system/bin/sh
+exec /system/bin/logcat -b all -v threadtime -r 256 -n 1 -f /data/droidpc-devices.log \
+    'CamPrvdr@2.4-external:V' 'CamPrvdr@2.7-external:V' 'ExtCamDev@3.4:V' \
+    'ExtCamDev@3.5:V' 'CameraProviderManager:V' 'EthernetTracker:V' \
+    'EthernetNetworkFactory:V' 'IpClient:V' 'DhcpClient:V' 'Netd:E' 'BpfHandler:E' '*:S'
+SH
 cat > "$tmp/capture-logcat.sh" <<'SH'
 #!/system/bin/sh
 exec /system/bin/logcat -b all -v threadtime -r 1024 -n 1 \
@@ -578,6 +585,7 @@ printf '%s\n' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-read-final-state.sh' \
     'on property:init.svc.logd=running' \
     '    exec_background -- /system/bin/sh /tmp/droidpc-capture-logcat.sh' \
+    '    exec_background -- /system/bin/sh /tmp/droidpc-capture-devices.sh' \
     'on charger' \
     '    write /data/droidpc-charger-trigger PASS' \
     'on late-init' \
@@ -689,6 +697,7 @@ set -- "$@" \
         --ro-bind "$tmp/read-binder.sh" /tmp/droidpc-read-binder.sh \
         --ro-bind "$tmp/read-profile.sh" /tmp/droidpc-read-profile.sh \
         --ro-bind "$tmp/read-final-state.sh" /tmp/droidpc-read-final-state.sh \
+        --ro-bind "$tmp/capture-devices.sh" /tmp/droidpc-capture-devices.sh \
         --ro-bind "$tmp/capture-logcat.sh" /tmp/droidpc-capture-logcat.sh \
         --ro-bind "$tmp/cmdline" /proc/cmdline \
         --bind "$tmp/proc-sys" /proc/sys \
@@ -813,9 +822,10 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         # Pin the namespace before pasta drops ptrace capabilities needed by /proc.
         touch "$tmp/network.ns"
         mount --bind "/proc/$guest_init/ns/net" "$tmp/network.ns"
-        set -- /usr/bin/pasta --foreground --netns "$tmp/network.ns" \
+        set -- /usr/bin/pasta --foreground --ipv4-only --netns "$tmp/network.ns" \
             --runas 0:0 \
             --config-net --ns-ifname eth0 --no-map-gw \
+            --address 10.0.2.15 --netmask 255.255.255.0 --gateway 10.0.2.2 \
             --dns-forward 10.0.2.3 --dns-host "$host_dns" --dns 10.0.2.3 --dhcp-dns \
             --tcp-ports none --udp-ports none --tcp-ns none --udp-ns none
         if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then

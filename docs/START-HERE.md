@@ -411,3 +411,37 @@ After restart, use `sudo ./scripts/diagnose-android-graphics.sh --devices` once
 Android has finished booting to check framework networking and camera services.
 An Ethernet transport alone does not verify Android DNS, network validation or
 camera capture; those require a running guest check.
+
+### Verify an Android app can use internet and camera
+
+After Android finishes booting, run:
+
+```sh
+sudo ./scripts/diagnose-android-graphics.sh --verify
+```
+
+This builds and installs a small diagnostic APK with Internet and camera
+permissions, briefly opens it, and checks HTTPS through Android's active network.
+It then opens a camera through Camera2 and requests one JPEG frame. The frame is
+checked and discarded; no photo is saved. The utility closes after the checks,
+and the helper stops it if the check times out. Results are written to
+`~/.local/share/droidpc-probe/data/droidpc-device-check.log`.
+`HTTPS_OK` and `CAMERA_FRAME_OK` are the success markers. Merely seeing `eth0` or
+a running camera provider is insufficient. Failure includes network properties,
+camera IDs, and provider initialization logs. External camera IDs may not be
+supported by apps that require front/back phone cameras; the check reports facing.
+
+The desktop transport uses the private IPv4 subnet `10.0.2.0/24`, guest address
+`10.0.2.15`, gateway `10.0.2.2`, and DNS proxy `10.0.2.3`. DHCP advertises these
+values rather than inheriting addresses or a missing gateway from a host VPN.
+The helper follows host outbound connectivity without changing host routes.
+Camera and network startup messages are preserved separately in the bounded
+`droidpc-devices.log` files so unrelated framework logs cannot immediately erase
+the initialization failure.
+
+The host verification on 2026-11-06 confirmed an Android app received a validated
+Ethernet default network, the expected DHCP gateway/DNS, and `HTTPS_OK 204`.
+Camera verification remains incomplete: the HAL reported `Permission denied`
+opening the passed video nodes and exposed no camera IDs. Use
+`sudo ./scripts/diagnose-android-graphics.sh --camera-access` to compare the
+provider credentials with the live device ownership before changing permissions.
