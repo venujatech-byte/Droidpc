@@ -166,6 +166,67 @@ sys.stdout.buffer.write(bytes([n]) * 20)
             self.assertEqual(result.returncode, -15)
             self.assertEqual(output.read_bytes(), bytes(20) + bytes([1]) * 20)
 
+    def test_continuous_capture_uses_one_process_for_multiple_frames(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\n', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recorder = root / 'screenrecord'
+            recorder.write_text('''#!/usr/bin/python3
+import os, signal, sys
+from pathlib import Path
+assert sys.argv[1:] == ['--output-format=frames', '-']
+count = Path(os.environ['CAPTURE_COUNT'])
+assert not count.exists()
+count.write_text('1')
+os.write(1, bytes(range(40)))
+os.kill(os.getppid(), signal.SIGTERM)
+''')
+            recorder.chmod(0o755)
+            output = root / 'frames'
+            script = root / 'capture.sh'
+            script.write_text(helper.replace('/system/bin/screenrecord', str(recorder))
+                              .replace('/data/droidpc-screen.pipe', str(output))
+                              .replace('/data/droidpc-capture.log', str(root / 'capture.log')))
+            result = subprocess.run(['/bin/sh', str(script), 'display'], env=os.environ | {
+                'CAPTURE_COUNT': str(root / 'count'),
+            }, timeout=3)
+            self.assertEqual(result.returncode, -15)
+            self.assertEqual(output.read_bytes(), bytes(range(40)))
+            self.assertEqual((root / 'count').read_text(), '1')
+
+    def test_continuous_capture_failure_preserves_snapshot_fallback(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+        helper = source.split(
+            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 1
+        )[1].split('\nSH\n', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recorder = root / 'screenrecord'
+            recorder.write_text('#!/bin/sh\nexit 1\n')
+            recorder.chmod(0o755)
+            capture = root / 'screencap'
+            capture.write_text('''#!/usr/bin/python3
+import os, signal
+os.write(1, bytes(range(20)))
+os.kill(os.getppid(), signal.SIGTERM)
+''')
+            capture.chmod(0o755)
+            output, log = root / 'frames', root / 'capture.log'
+            script = root / 'capture.sh'
+            script.write_text(helper.replace('/system/bin/screenrecord', str(recorder))
+                              .replace('/system/bin/screencap', str(capture))
+                              .replace('/data/droidpc-screen.pipe', str(output))
+                              .replace('/data/droidpc-capture.log', str(log)))
+            result = subprocess.run(['/bin/sh', str(script), 'display'], timeout=3)
+            self.assertEqual(result.returncode, -15)
+            self.assertEqual(output.read_bytes(), bytes(range(20)))
+            self.assertIn('using snapshot fallback', log.read_text())
+
     def test_completed_boot_captures_a_screenshot(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()

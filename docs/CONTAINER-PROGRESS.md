@@ -181,3 +181,13 @@ figures exclude the Android guest and capture producer; they do not establish
 Android frame rate or end-to-end input latency. The release build, frame parser,
 coordinate mapping, CLI checks, and shell helper tests pass. A complete Android
 run through the new raw capture path still requires host verification.
+
+The viewer now uploads packed pixels directly into a reusable native OpenGL
+texture, avoiding the per-frame egui CPU image conversion and texture
+reallocation. Synthetic RGBA and RGB streams (including RGB rows not aligned
+to four bytes) rendered on Intel UHD 605; these runs used about 64 MiB RSS.
+An optional continuous source, `DROIDPC_CAPTURE_SOURCE=display`, uses the
+image's uncompressed virtual-display packets instead of starting screencap for
+each frame. Its packet parser, process reuse, and snapshot fallback are tested.
+The image binary includes this mode, but full Android throughput still needs
+a live guest check; snapshot remains the default until that check passes.

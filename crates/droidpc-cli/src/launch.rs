@@ -27,6 +27,11 @@ pub fn run() -> ExitCode {
                 "DROIDPC_WINDOW_FPS={}",
                 env::var("DROIDPC_WINDOW_FPS").unwrap_or_else(|_| "60".into())
             ))
+            .arg(format!(
+                "DROIDPC_CAPTURE_SOURCE={}",
+                env::var("DROIDPC_CAPTURE_SOURCE")
+                    .unwrap_or_else(|_| "snapshot".into())
+            ))
             .arg(script)
             .exec();
         eprintln!("Could not launch Android: {error}");

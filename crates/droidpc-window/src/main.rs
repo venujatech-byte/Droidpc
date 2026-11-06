@@ -1,4 +1,5 @@
 mod frame;
+mod texture;
 
 use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Vec2};
 use eframe::glow::HasContext;
@@ -25,7 +26,7 @@ type Latest = Arc<Mutex<Result<Option<Arc<Frame>>, String>>>;
 
 struct Window {
     latest: Latest,
-    texture: Option<egui::TextureHandle>,
+    texture: Option<texture::Texture>,
     size: [usize; 2],
     input: mpsc::SyncSender<String>,
     pressed: Option<([u32; 2], Instant)>,
@@ -148,7 +149,11 @@ impl Window {
 }
 
 impl eframe::App for Window {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(
+        &mut self,
+        ctx: &egui::Context,
+        render_frame: &mut eframe::Frame,
+    ) {
         let next = {
             let mut latest = self.latest.lock().unwrap();
             match &mut *latest {
@@ -164,22 +169,17 @@ impl eframe::App for Window {
                 self.pressed = None;
             }
             self.size = frame.size;
-            let image = egui::ColorImage::from_rgba_unmultiplied(
-                frame.size,
-                &frame.rgba,
-            );
-            if let Some(texture) = &mut self.texture {
-                texture.set(image, egui::TextureOptions::LINEAR);
-            } else {
-                self.texture = Some(ctx.load_texture(
-                    "android",
-                    image,
-                    egui::TextureOptions::LINEAR,
-                ));
-                eprintln!(
-                    "Android first frame: {}x{}",
-                    frame.size[0], frame.size[1]
-                );
+            if self.error.is_none() {
+                match texture::upload(self.texture.take(), &frame, render_frame)
+                {
+                    Ok(texture) => {
+                        self.texture = Some(texture);
+                    }
+                    Err(error) => {
+                        eprintln!("{error}");
+                        self.error = Some(error);
+                    }
+                }
             }
             self.fps_count += 1;
             let elapsed = self.fps_started.elapsed().as_secs_f32();
@@ -199,7 +199,7 @@ impl eframe::App for Window {
                 let frame = Vec2::new(self.size[0] as f32, self.size[1] as f32);
                 let scale = (available.width() / frame.x).min(available.height() / frame.y);
                 let rect = Rect::from_center_size(available.center(), frame * scale);
-                ui.painter().image(texture.id(), rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                ui.painter().image(texture.id, rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                 self.input(ctx, rect);
             } else {
                 let message = self.error.as_deref().unwrap_or(if self.started.elapsed() > Duration::from_secs(90) {
@@ -257,6 +257,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !(1..=240).contains(&fps) {
         return Err("DROIDPC_WINDOW_FPS must be between 1 and 240".into());
     }
+    let display_stream = match env::var("DROIDPC_CAPTURE_SOURCE")
+        .as_deref()
+        .unwrap_or("snapshot")
+    {
+        "display" => true,
+        "snapshot" => false,
+        _ => {
+            return Err(
+                "DROIDPC_CAPTURE_SOURCE must be display or snapshot".into()
+            );
+        }
+    };
     let activity = Arc::new(AtomicBool::new(false));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -283,7 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let renderer =
                     unsafe { gl.get_parameter_string(eframe::glow::RENDERER) };
                 eprintln!(
-                    "OpenGL renderer: {renderer}; capture ceiling: {fps} fps"
+                    "OpenGL renderer: {renderer}; capture ceiling: {fps} fps; continuous source: {display_stream}"
                 );
             }
             let state = latest.clone();
@@ -294,10 +306,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut changed_at = Instant::now();
                 loop {
                     let began = Instant::now();
-                    match frame::read_frame(&mut stream) {
+                    let next = frame::read_any_frame(&mut stream);
+                    match next {
                         Ok(frame) => {
+                            if previous.is_none() {
+                                eprintln!(
+                                    "Android first frame: {}x{}",
+                                    frame.size[0], frame.size[1]
+                                );
+                            }
                             let changed = previous.as_ref().is_none_or(|old| {
-                                old.size != frame.size || old.rgba != frame.rgba
+                                old.size != frame.size
+                                    || old.layout != frame.layout
+                                    || old.pixels != frame.pixels
                             });
                             if changed {
                                 changed_at = Instant::now();
@@ -321,12 +342,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if capture_activity.swap(false, Ordering::Relaxed) {
                         changed_at = Instant::now();
                     }
-                    let interval =
-                        if changed_at.elapsed() > Duration::from_secs(1) {
-                            Duration::from_millis(250)
-                        } else {
-                            Duration::from_secs_f64(1.0 / f64::from(fps))
-                        };
+                    let interval = if previous.as_ref().is_some_and(|frame| frame.layout == frame::PixelLayout::Rgba)
+                        && changed_at.elapsed() > Duration::from_secs(1)
+                    {
+                        Duration::from_millis(250)
+                    } else {
+                        Duration::from_secs_f64(1.0 / f64::from(fps))
+                    };
                     thread::park_timeout(
                         interval.saturating_sub(began.elapsed()),
                     );

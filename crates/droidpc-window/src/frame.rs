@@ -1,8 +1,28 @@
 use std::io::{self, Read};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PixelLayout {
+    Rgb,
+    Rgba,
+}
+
 pub struct Frame {
     pub size: [usize; 2],
-    pub rgba: Vec<u8>,
+    pub pixels: Vec<u8>,
+    pub layout: PixelLayout,
+}
+
+// The fourth word is a snapshot color-space ID (0..=2) or an RGB row stride (>=3).
+pub fn read_any_frame(reader: &mut impl Read) -> io::Result<Frame> {
+    let mut prefix = [0_u8; 16];
+    reader.read_exact(&mut prefix)?;
+    let snapshot = u32::from_le_bytes(prefix[12..16].try_into().unwrap()) <= 2;
+    let mut prefixed = io::Cursor::new(prefix).chain(reader);
+    if snapshot {
+        read_frame(&mut prefixed)
+    } else {
+        read_display_frame(&mut prefixed)
+    }
 }
 
 // Android 13 raw capture: width, height, pixel format, color space, packed rows.
@@ -25,16 +45,7 @@ pub fn read_frame(reader: &mut impl Read) -> io::Result<Frame> {
             ));
         }
     };
-    let pixels = width
-        .checked_mul(height)
-        .filter(|&n| n > 0 && n <= 16_777_216);
-    let Some(pixels) = pixels.filter(|_| width <= 8192 && height <= 8192)
-    else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "invalid Android frame dimensions",
-        ));
-    };
+    let pixels = checked_pixels(width, height)?;
     // shortcut: the desktop texture is sRGB; color-managed P3 conversion is a future renderer change.
     if color_space > 2 {
         return Err(io::Error::new(
@@ -70,7 +81,48 @@ pub fn read_frame(reader: &mut impl Read) -> io::Result<Frame> {
     };
     Ok(Frame {
         size: [width, height],
-        rgba,
+        pixels: rgba,
+        layout: PixelLayout::Rgba,
+    })
+}
+
+fn checked_pixels(width: usize, height: usize) -> io::Result<usize> {
+    width
+        .checked_mul(height)
+        .filter(|&n| {
+            n > 0 && n <= 16_777_216 && width <= 8192 && height <= 8192
+        })
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid Android frame dimensions",
+            )
+        })
+}
+
+// Android FrameOutput packets contain length, width, height, stride and RGB888.
+pub fn read_display_frame(reader: &mut impl Read) -> io::Result<Frame> {
+    let mut header = [0_u8; 20];
+    reader.read_exact(&mut header)?;
+    let word = |offset| {
+        u32::from_le_bytes(header[offset..offset + 4].try_into().unwrap())
+            as usize
+    };
+    let (length, width, height, stride, format) =
+        (word(0), word(4), word(8), word(12), word(16));
+    let bytes = checked_pixels(width, height)? * 3;
+    if format != 3 || stride != width * 3 || length != 16 + bytes {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid Android display-stream packet",
+        ));
+    }
+    let mut pixels = vec![0; bytes];
+    reader.read_exact(&mut pixels)?;
+    Ok(Frame {
+        size: [width, height],
+        pixels,
+        layout: PixelLayout::Rgb,
     })
 }
 
@@ -102,9 +154,9 @@ mod tests {
             ]
             .concat(),
         );
-        assert_eq!(read_frame(&mut stream).unwrap().rgba, [10, 20, 30, 255]);
-        assert_eq!(read_frame(&mut stream).unwrap().rgba, [1, 2, 3, 255]);
-        assert_eq!(read_frame(&mut stream).unwrap().rgba, [255, 0, 0, 255]);
+        assert_eq!(read_frame(&mut stream).unwrap().pixels, [10, 20, 30, 255]);
+        assert_eq!(read_frame(&mut stream).unwrap().pixels, [1, 2, 3, 255]);
+        assert_eq!(read_frame(&mut stream).unwrap().pixels, [255, 0, 0, 255]);
     }
 
     #[test]
@@ -117,5 +169,57 @@ mod tests {
         ] {
             assert!(read_frame(&mut Cursor::new(data)).is_err());
         }
+    }
+
+    fn display_packet(width: u32, height: u32, data: &[u8]) -> Vec<u8> {
+        [
+            (16 + data.len() as u32).to_le_bytes(),
+            width.to_le_bytes(),
+            height.to_le_bytes(),
+            (width * 3).to_le_bytes(),
+            3_u32.to_le_bytes(),
+        ]
+        .concat()
+        .into_iter()
+        .chain(data.iter().copied())
+        .collect()
+    }
+
+    #[test]
+    fn display_packets_keep_rgb_bytes_without_cpu_expansion() {
+        let packet = display_packet(1, 1, &[10, 20, 30]);
+        let mut stream = Cursor::new([packet.clone(), packet].concat());
+        for _ in 0..2 {
+            let frame = read_display_frame(&mut stream).unwrap();
+            assert_eq!(frame.size, [1, 1]);
+            assert_eq!(frame.layout, PixelLayout::Rgb);
+            assert_eq!(frame.pixels, [10, 20, 30]);
+        }
+    }
+
+    #[test]
+    fn display_packets_reject_invalid_lengths_strides_and_truncation() {
+        let valid = display_packet(1, 1, &[10, 20, 30]);
+        for offset in [0, 4, 8, 12, 16] {
+            let mut invalid = valid.clone();
+            invalid[offset..offset + 4]
+                .copy_from_slice(&u32::MAX.to_le_bytes());
+            assert!(read_display_frame(&mut Cursor::new(invalid)).is_err());
+        }
+        assert!(read_display_frame(&mut Cursor::new(&valid[..21])).is_err());
+    }
+    #[test]
+    fn transport_can_fall_back_between_complete_packets() {
+        let data = [
+            display_packet(1, 1, &[1, 2, 3]),
+            capture(1, 1, 1, &[4, 5, 6, 255]),
+        ]
+        .concat();
+        let mut stream = Cursor::new(data);
+        assert_eq!(
+            read_any_frame(&mut stream).unwrap().layout,
+            PixelLayout::Rgb
+        );
+        assert_eq!(read_any_frame(&mut stream).unwrap().pixels, [4, 5, 6, 255]);
     }
 }

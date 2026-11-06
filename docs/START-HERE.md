@@ -186,17 +186,34 @@ cargo build --release -j 1 -p droidpc-cli -p droidpc-window
 Run `launch` from the repository root. It starts the privileged diagnostic
 through sudo and uses the existing persistent Android data. The viewer itself
 runs as your desktop user. OpenGL handles scaling and presentation with vertical
-sync. Android supplies raw pixels through a private FIFO, without PNG encoding,
-image files, or video codecs. Only one pending frame is retained; old frames
+sync. Raw pixels upload directly into a reusable OpenGL texture without making
+an egui CPU image. The confirmed snapshot source remains the default. Enable
+the continuous display source to avoid starting a capture process for every
+frame:
+
+```sh
+DROIDPC_CAPTURE_SOURCE=display ./target/release/droidpc-cli launch
+```
+
+This uses an uncompressed virtual-display stream over a private FIFO, without
+PNG encoding, image files, or video codecs. RGB pixels stay packed during host
+upload. Only one pending frame is retained; old frames
 are replaced rather than queued. The window title displays the observed rate.
 
 Capture targets 60 frames per second by default. For a faster display, use
 `DROIDPC_WINDOW_FPS=144 ./target/release/droidpc-cli launch` (valid range 1–240).
 This is a capture ceiling, not a promise of that rate: Android capture readback,
-resolution, CPU and GPU determine the actual result. After a second of unchanged
-pixels, capture backs off to four samples per second and skips GPU uploads.
-Input wakes capture immediately. This path still copies frames through CPU
-memory; direct graphics-buffer sharing is a future renderer change.
+resolution, CPU and GPU determine the actual result. The continuous producer
+waits for new display frames rather than spawning a process for each capture.
+Unchanged pixels skip GPU uploads. If continuous capture fails between complete
+packets, it falls back to snapshots and logs the reason. Snapshot mode slows to
+four samples per second after an unchanged second; input wakes capture.
+This path still reads GPU pixels through CPU memory; it is not DMA-BUF sharing.
+To select the confirmed raw snapshot source explicitly:
+
+```sh
+DROIDPC_CAPTURE_SOURCE=snapshot ./target/release/droidpc-cli launch
+```
 
 Clicks become taps, drags become swipes, the wheel scrolls, and right click or
 Escape goes back. Basic keys and printable ASCII text are supported; arbitrary

@@ -21,6 +21,11 @@ case "$window_backend" in
     rust|screenshots) ;;
     *) echo "DROIDPC_WINDOW_BACKEND must be rust or screenshots" >&2; exit 1 ;;
 esac
+capture_source=${DROIDPC_CAPTURE_SOURCE:-snapshot}
+case "$capture_source" in
+    display|snapshot) ;;
+    *) echo "DROIDPC_CAPTURE_SOURCE must be display or snapshot" >&2; exit 1 ;;
+esac
 window_binary=$(pwd -P)/target/release/droidpc-window
 
 if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
@@ -432,6 +437,14 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
 #!/system/bin/sh
 exec 2>/data/droidpc-capture.log
 exec >/data/droidpc-screen.pipe
+if [ "${1:-snapshot}" = display ]; then
+    while true; do
+        if ! /system/bin/screenrecord --output-format=frames -; then
+            echo 'Continuous display capture failed; using snapshot fallback' >&2
+            break
+        fi
+    done
+fi
 while true; do
     if ! /system/bin/screencap; then
         echo 'Android raw screen capture failed; retrying' >&2
@@ -536,8 +549,8 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
 on property:sys.boot_completed=1
     exec_background -- /system/bin/sh /tmp/droidpc-read-input.sh
 RC
-    cat >> "$tmp/probe.rc" <<'RC'
-service droidpc-screen /system/bin/sh /tmp/droidpc-stream-screen.sh
+    cat >> "$tmp/probe.rc" <<RC
+service droidpc-screen /system/bin/sh /tmp/droidpc-stream-screen.sh $capture_source
     class core
     disabled
     user root
@@ -672,6 +685,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         setsid runuser -u "$SUDO_USER" -- env \
             XDG_RUNTIME_DIR="$guest_runtime_dir" WAYLAND_DISPLAY="$wayland_display" \
             DROIDPC_WINDOW_FPS="${DROIDPC_WINDOW_FPS:-60}" \
+            DROIDPC_CAPTURE_SOURCE="$capture_source" \
             "$window_binary" "$stream_fifo" "$input_fifo" \
             > "$tmp/window.log" 2>&1 &
     else
