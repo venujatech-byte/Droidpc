@@ -40,24 +40,27 @@ class AndroidWindow:
         self.pointer_time = 0.0
         self.window = Gtk.Window(title='Droidpc Android')
         self.window.set_default_size(960, 540)
-        self.image = Gtk.Image()
-        self.image.set_can_focus(True)
-        self.image.set_hexpand(True)
-        self.image.set_vexpand(True)
-        self.image.add_events(
+        self.event_box = Gtk.EventBox()
+        self.event_box.set_visible_window(False)
+        self.event_box.set_can_focus(True)
+        self.event_box.add_events(
             Gdk.EventMask.BUTTON_PRESS_MASK
             | Gdk.EventMask.BUTTON_RELEASE_MASK
             | Gdk.EventMask.KEY_PRESS_MASK
         )
-        self.image.connect('button-press-event', self.pointer_press)
-        self.image.connect('button-release-event', self.pointer_release)
-        self.image.connect('key-press-event', self.key_press)
-        self.window.add(self.image)
+        self.image = Gtk.Image()
+        self.image.set_hexpand(True)
+        self.image.set_vexpand(True)
+        self.event_box.add(self.image)
+        self.event_box.connect('button-press-event', self.pointer_press)
+        self.event_box.connect('button-release-event', self.pointer_release)
+        self.event_box.connect('key-press-event', self.key_press)
+        self.window.add(self.event_box)
         self.image.connect('size-allocate', self.resize_frame)
         self.window.connect('destroy', Gtk.main_quit)
         self.window.show_all()
-        self.image.grab_focus()
-        GLib.timeout_add(60, self.refresh_frame)
+        self.event_box.grab_focus()
+        GLib.timeout_add(200, self.refresh_frame)
 
     def send(self, command):
         if self.input_fd is None:

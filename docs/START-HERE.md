@@ -184,8 +184,9 @@ sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
   ./scripts/probe-android-init-selinux.sh
 ```
 
-The window refreshes from Android screenshots captured after boot completes.
-It forwards clicks as taps, drags as swipes, and basic keyboard navigation.
+The window refreshes from Android screenshots captured twice per second after
+boot completes. It forwards clicks as taps, drags as swipes, and basic keyboard
+navigation.
 The guest graphics composer also uses the host Wayland socket to initialize
 SurfaceFlinger.
 Closing the window or pressing Ctrl+C in that terminal stops the guest. Android

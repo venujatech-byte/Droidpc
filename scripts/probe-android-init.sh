@@ -400,7 +400,7 @@ while true; do
         chmod 0644 /data/${frame_file##*/}.tmp
         mv -f /data/${frame_file##*/}.tmp /data/${frame_file##*/}
     fi
-    sleep 0.2
+    sleep 0.5
 done
 SH
     cat > "$tmp/read-input.sh" <<'SH'

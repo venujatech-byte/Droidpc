@@ -19,6 +19,14 @@ except (ImportError, ValueError):
 
 @unittest.skipIf(window_module is None, 'Python GTK 3 bindings are unavailable')
 class AndroidWindowTests(unittest.TestCase):
+    def test_pointer_and_keyboard_handlers_use_focusable_event_box(self):
+        source = SOURCE.read_text()
+
+        self.assertIn('self.event_box = Gtk.EventBox()', source)
+        self.assertIn("self.event_box.connect('button-press-event'", source)
+        self.assertIn("self.event_box.connect('key-press-event'", source)
+        self.assertIn('self.event_box.grab_focus()', source)
+
     def test_refresh_reloads_replaced_screenshot_path(self):
         with tempfile.TemporaryDirectory() as directory:
             frame_path = Path(directory) / 'frame.png'
