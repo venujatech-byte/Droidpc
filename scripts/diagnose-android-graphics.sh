@@ -6,6 +6,8 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+devices=0
+[ "${1:-}" != --devices ] || devices=1
 found=
 for entry in /proc/[0-9]*/cmdline; do
     [ -r "$entry" ] || continue
@@ -30,9 +32,14 @@ fi
 
 printf 'DROIDPC_GUEST_HOST_PID=%s\n' "$found"
 guest=/proc/$found/root
-if [ "${1:-}" = --devices ]; then
+set -- nsenter --target "$found" --mount --pid --net --
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+    set -- runcon -t droidpc_probe_t -- "$@"
+fi
+
+if [ "$devices" = 1 ]; then
     printf '\n--- Camera provider and network service state ---\n'
-    timeout --signal=TERM --kill-after=2s 15s nsenter --target "$found" --mount --pid --net -- \
+    timeout --signal=TERM --kill-after=2s 20s "$@" \
         /system/bin/sh -c '
             for service in netd vendor.camera-provider-2-7-ext cameraserver; do
                 echo "$service=$(getprop init.svc.$service)"
@@ -40,6 +47,12 @@ if [ "${1:-}" = --devices ]; then
             ls -ln /dev/video* /dev/media* 2>/dev/null
             ip -brief address
             ip route
+            echo "boot_completed=$(getprop sys.boot_completed)"
+            ls -ld /sys/class/net /proc/sys/net /sys/fs/bpf
+            service list | sed -n "1,12p"
+            ping -c 1 -W 2 1.1.1.1
+            ping -c 1 -W 2 example.com
+            dumpsys connectivity | sed -n "/Active default network:/p; /Current Networks:/,+12p"
             wm size
             wm density
             dumpsys ethernet

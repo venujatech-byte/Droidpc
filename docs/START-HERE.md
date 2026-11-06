@@ -385,13 +385,23 @@ before Android starts. The guest composer uses that size rather than enlarging
 a fixed low resolution image. Later window resizing scales the existing output;
 restart on another monitor to recalibrate resolution and density.
 
-Wheel movement is proportional, coalesced and bounded to prevent large jumps.
+The Rust window sends native Android wheel events through a persistent Android
+input bridge. Mouse notches target about three text lines, while touchpads retain
+fractional horizontal and vertical movement; events coalesce at up to 60 Hz.
+Scrolling does not synthesize touch swipes or flings. Building the bridge requires
+a JDK and Android SDK platform/build-tools (`ANDROID_HOME`, or `~/Android/Sdk`);
+`scripts/build-android-input.sh` produces `target/droidpc-input.jar`. Startup builds
+it if missing or older than its source. Runtime injection errors go to
+`~/.local/share/droidpc-probe/data/droidpc-input.log`.
 Camera nodes use Android's camera group (1006), matching the external provider.
 Desktop sessions require `pasta` from the `passt` package for a private Ethernet
 link and host DNS forwarding. Its helper retains UID 0 to enter the root-owned
 guest network namespace, then applies its own capability and syscall sandbox.
 The launcher pins the namespace with a private bind mount before starting the
 helper, avoiding restricted process namespace paths; cleanup releases the mount.
+Android also receives live, read-only network interface metadata and writable
+network sysctls mounted from inside its own network namespace. Global host kernel
+sysctls remain hidden.
 With the SELinux wrapper, the helper enters the same temporary diagnostic domain
 as Android so the host helper policy does not block namespace entry. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
 No host routes or inbound port forwards are created. Networking logs are stored

@@ -154,20 +154,14 @@ impl Window {
                         .input(|i| i.pointer.hover_pos())
                         .and_then(|p| position(rect, self.size, p))
                     {
-                        self.wheel.add(
-                            unit,
-                            delta,
-                            point,
-                            rect.size(),
-                            self.size,
-                        );
+                        self.wheel.add(unit, delta, point, rect.size());
                     }
                 }
                 _ => {}
             }
         }
         let now = Instant::now();
-        if let Some(command) = self.wheel.take(now, self.size) {
+        if let Some(command) = self.wheel.take(now) {
             self.send(command);
         }
         if let Some(wait) = self.wheel.wait(now) {

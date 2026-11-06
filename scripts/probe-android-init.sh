@@ -119,6 +119,9 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         exit 1
     fi
     if [ "$window_backend" = rust ]; then
+        if [ ! -f "$root/target/droidpc-input.jar" ] || [ "$root/scripts/android/DroidpcInput.java" -nt "$root/target/droidpc-input.jar" ]; then
+            runuser -u "$SUDO_USER" -- "$root/scripts/build-android-input.sh"
+        fi
         if [ ! -x "$window_binary" ]; then
             echo "Build the Rust window first: cargo build --release -p droidpc-window" >&2
             exit 1
@@ -278,6 +281,7 @@ if [ -n "$render_node" ]; then
     }
     python3 "$root/scripts/stage-gpu-sysfs.py" "$tmp/gpu-sys" \
         renderD128 ${drm_card_name:+"$drm_card_name"}
+    mkdir -p "$tmp/gpu-sys/class/net" "$tmp/gpu-sys/devices/virtual/net"
     prepare_drm_node renderD128
     if [ -n "$drm_card_name" ]; then
         prepare_drm_node "$drm_card_name"
@@ -499,6 +503,10 @@ SH
     fi
     cat > "$tmp/read-input.sh" <<'SH'
 #!/system/bin/sh
+if [ -r /tmp/droidpc-input.jar ]; then
+    export CLASSPATH=/tmp/droidpc-input.jar
+    exec /system/bin/app_process /system/bin DroidpcInput < /data/droidpc-input.pipe 2>/data/droidpc-input.log
+fi
 while read -r action a b c d duration; do
     case "$action" in
         tap)
@@ -689,6 +697,12 @@ set -- "$@" \
         --bind "$data_dir" /data --tmpfs /mnt \
         --tmpfs /apex \
         --tmpfs /linkerconfig
+if [ "$network_enabled" = 1 ]; then
+    set -- "$@" --ro-bind "$root/scripts/android-network-setup.sh" /tmp/droidpc-network-setup.sh
+fi
+if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ] && [ "$window_backend" = rust ]; then
+    set -- "$@" --ro-bind "$root/target/droidpc-input.jar" /tmp/droidpc-input.jar
+fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     set -- "$@" \
         --bind "$stream_fifo" /data/droidpc-screen.pipe \
@@ -778,6 +792,15 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
             echo "No host DNS resolver configured" >&2
             exit 1
         fi
+        set -- nsenter --target "$guest_init" --mount --pid --net -- \
+            /system/bin/sh /tmp/droidpc-network-setup.sh
+        if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
+            set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
+        fi
+        "$@" > "$tmp/network-setup.log" 2>&1 || {
+            cat "$tmp/network-setup.log" >&2
+            exit 1
+        }
         # Pin the namespace before pasta drops ptrace capabilities needed by /proc.
         touch "$tmp/network.ns"
         mount --bind "/proc/$guest_init/ns/net" "$tmp/network.ns"
