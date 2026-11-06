@@ -1,7 +1,7 @@
 use eframe::egui::{MouseWheelUnit, Vec2};
 use std::time::{Duration, Instant};
 
-const INTERVAL: Duration = Duration::from_millis(250);
+const INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Default)]
 pub struct Wheel {
@@ -21,7 +21,7 @@ impl Wheel {
     ) {
         let points = match unit {
             MouseWheelUnit::Point => delta,
-            MouseWheelUnit::Line => delta * 12.0,
+            MouseWheelUnit::Line => delta * 32.0,
             MouseWheelUnit::Page => delta * viewport * 0.5,
         };
         self.pending += points
@@ -44,7 +44,7 @@ impl Wheel {
         self.pending = Vec2::ZERO;
         let [x, y] = self.point;
         let (end_x, end_y) = if delta.y.abs() >= delta.x.abs() {
-            let limit = (size[1] as f32 * 0.05).clamp(1.0, 80.0);
+            let limit = (size[1] as f32 * 0.10).clamp(1.0, 120.0);
             (
                 x,
                 (y as f32 + delta.y.clamp(-limit, limit))
@@ -52,7 +52,7 @@ impl Wheel {
                     as u32,
             )
         } else {
-            let limit = (size[0] as f32 * 0.05).clamp(1.0, 80.0);
+            let limit = (size[0] as f32 * 0.10).clamp(1.0, 120.0);
             (
                 (x as f32 + delta.x.clamp(-limit, limit))
                     .clamp(0.0, size[0].saturating_sub(1) as f32)
@@ -64,7 +64,7 @@ impl Wheel {
             return None;
         }
         self.sent_at = Some(now);
-        Some(format!("swipe {x} {y} {end_x} {end_y} 180"))
+        Some(format!("swipe {x} {y} {end_x} {end_y} 100"))
     }
 
     pub fn wait(&self, now: Instant) -> Option<Duration> {
@@ -92,7 +92,7 @@ mod tests {
         );
         assert_eq!(
             wheel.take(Instant::now(), [1000, 1000]).as_deref(),
-            Some("swipe 500 500 500 524 180")
+            Some("swipe 500 500 500 564 100")
         );
         let mut wheel = Wheel::default();
         wheel.add(
@@ -104,7 +104,7 @@ mod tests {
         );
         assert_eq!(
             wheel.take(Instant::now(), [1000, 1000]).as_deref(),
-            Some("swipe 500 500 500 502 180")
+            Some("swipe 500 500 500 502 100")
         );
     }
 
@@ -123,7 +123,7 @@ mod tests {
         }
         assert_eq!(
             wheel.take(start, [1000, 1000]).as_deref(),
-            Some("swipe 500 500 500 450 180")
+            Some("swipe 500 500 500 400 100")
         );
         assert!(wheel.wait(start).is_none());
         wheel.add(
@@ -140,7 +140,7 @@ mod tests {
         );
         assert_eq!(
             wheel.take(start + INTERVAL, [1000, 1000]).as_deref(),
-            Some("swipe 500 500 512 500 180")
+            Some("swipe 500 500 532 500 100")
         );
     }
 }
