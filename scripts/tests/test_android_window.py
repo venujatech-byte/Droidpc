@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 
 SOURCE = Path(__file__).resolve().parents[1] / 'android-window.py'
@@ -18,6 +19,32 @@ except (ImportError, ValueError):
 
 @unittest.skipIf(window_module is None, 'Python GTK 3 bindings are unavailable')
 class AndroidWindowTests(unittest.TestCase):
+    def test_refresh_reloads_replaced_screenshot_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            frame_path = Path(directory) / 'frame.png'
+            frame_path.write_bytes(b'first')
+            window = window_module.AndroidWindow.__new__(
+                window_module.AndroidWindow
+            )
+            window.frame_path = str(frame_path)
+            window.frame_mtime_ns = None
+            window.image = SimpleNamespace(get_allocation=lambda: None)
+            first = SimpleNamespace(get_width=lambda: 10, get_height=lambda: 20)
+            second = SimpleNamespace(get_width=lambda: 30, get_height=lambda: 40)
+            window.resize_frame = lambda *_args: None
+            with patch.object(window_module.GdkPixbuf.Pixbuf,
+                              'new_from_file', side_effect=[first, second]) as load:
+                window.refresh_frame()
+                frame_path.write_bytes(b'second')
+                os.utime(frame_path, ns=(frame_path.stat().st_atime_ns,
+                                         window.frame_mtime_ns + 1_000_000))
+                window.refresh_frame()
+
+            self.assertIs(window.frame, second)
+            self.assertEqual((window.frame_width, window.frame_height),
+                             (30, 40))
+            self.assertEqual(load.call_count, 2)
+
     def test_pointer_coordinates_match_letterboxed_android_frame(self):
         window = window_module.AndroidWindow.__new__(
             window_module.AndroidWindow

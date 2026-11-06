@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 """Display Android frames and forward basic pointer/navigation input."""
-import glob
 import os
 import sys
 import time
@@ -29,11 +28,11 @@ KEYCODES = {
 
 
 class AndroidWindow:
-    def __init__(self, frame_pattern, input_fifo):
-        self.frame_pattern = frame_pattern
+    def __init__(self, frame_path, input_fifo):
+        self.frame_path = frame_path
         self.input_fifo = input_fifo
         self.input_fd = None
-        self.frame_name = None
+        self.frame_mtime_ns = None
         self.frame = None
         self.frame_width = 0
         self.frame_height = 0
@@ -140,24 +139,26 @@ class AndroidWindow:
         return True
 
     def refresh_frame(self):
-        names = glob.glob(self.frame_pattern)
-        if names:
-            name = max(names)
-            if name != self.frame_name:
-                try:
-                    self.frame = GdkPixbuf.Pixbuf.new_from_file(name)
-                    self.frame_width = self.frame.get_width()
-                    self.frame_height = self.frame.get_height()
-                    self.resize_frame(self.image, self.image.get_allocation())
-                    self.frame_name = name
-                except Exception:
-                    pass
+        try:
+            mtime_ns = os.stat(self.frame_path).st_mtime_ns
+        except OSError:
+            return True
+        if mtime_ns != self.frame_mtime_ns:
+            try:
+                frame = GdkPixbuf.Pixbuf.new_from_file(self.frame_path)
+                self.frame = frame
+                self.frame_width = frame.get_width()
+                self.frame_height = frame.get_height()
+                self.resize_frame(self.image, self.image.get_allocation())
+                self.frame_mtime_ns = mtime_ns
+            except Exception:
+                pass
         return True
 
 
 if __name__ == '__main__':
     if len(sys.argv) != 3:
-        raise SystemExit('usage: android-window.py FRAME_GLOB INPUT_FIFO')
+        raise SystemExit('usage: android-window.py FRAME_PNG INPUT_FIFO')
     initialized, _argv = Gtk.init_check()
     if not initialized:
         raise SystemExit('Android window: cannot connect to the desktop display')

@@ -17,7 +17,7 @@ class FinalStateProbeTests(unittest.TestCase):
             source.index('read-profile.sh $vendor_namespace'),
         )
 
-    def test_window_fifo_collision_retries_without_removing_existing_path(self):
+    def test_window_input_fifo_collision_retries_without_removing_existing_path(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()
         allocator = source.split('    attempt=0\n', 1)[1].split(
@@ -31,18 +31,15 @@ class FinalStateProbeTests(unittest.TestCase):
             script = root / 'allocate.sh'
             script.write_text(
                 f'guest_runtime_dir="{root}"\nattempt=0\n{allocator}'
-                'printf "%s\\n%s\\n%s\\n" "$attempt" '
-                '"$stream_fifo" "$input_fifo"\n'
+                'printf "%s\\n%s\\n" "$attempt" "$input_fifo"\n'
             )
             result = subprocess.run(['/bin/sh', str(script)],
                                     check=True, capture_output=True,
                                     text=True, timeout=3)
-            attempt, stream, input_path = result.stdout.splitlines()
+            attempt, input_path = result.stdout.splitlines()
 
             self.assertEqual(attempt, '1')
             self.assertTrue(collision.is_file())
-            self.assertFalse((root / 'droidpc-screen-test-0.pipe').exists())
-            self.assertTrue(Path(stream).is_fifo())
             self.assertTrue(Path(input_path).is_fifo())
 
     def test_window_guest_input_helper_accepts_only_numeric_commands(self):
@@ -85,43 +82,43 @@ key 4; touch {injection_marker}
             ])
             self.assertFalse(injection_marker.exists())
 
-    def test_window_stream_forwards_consecutive_h264_streams(self):
+    def test_window_capture_replaces_frame_with_completed_screenshot(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()
         helper = source.split(
-            'cat > "$tmp/stream-screen.sh" <<\'SH\'\n', 1
-        )[1].split('\nSH\nfi\n', 1)[0]
+            'cat > "$tmp/capture-screen.sh" <<SH\n', 1
+        )[1].split('\nSH\n', 1)[0]
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            frame = root / 'frame.h264'
-            frame.write_bytes(b'H264-frame')
+            frame = root / 'frame.png'
             count = root / 'count'
             commands = root / 'bin'
             commands.mkdir()
-            screenrecord = commands / 'screenrecord'
-            screenrecord.write_text('''#!/bin/sh
+            screencap = commands / 'screencap'
+            screencap.write_text('''#!/bin/sh
 count=$(cat "$FRAME_COUNT" 2>/dev/null || echo 0)
 [ "$count" -lt 2 ] || { kill -TERM "$PPID"; exit 1; }
 echo $((count + 1)) > "$FRAME_COUNT"
-cat "$FRAME"
+printf 'PNG-%s' "$count" > "$2"
 ''')
-            screenrecord.chmod(0o755)
-            output = root / 'stream'
-            script = root / 'stream.sh'
-            script.write_text(helper.replace(
-                '/data/droidpc-screen.pipe', str(output)).replace(
-                    '/system/bin/screenrecord', 'screenrecord'))
+            screencap.chmod(0o755)
+            helper = helper.replace(
+                '${frame_file##*/}', 'droidpc-window-test.png')
+            helper = helper.replace('/data/droidpc-window-test.png',
+                                    str(frame))
+            helper = helper.replace('/system/bin/screencap', 'screencap')
+            script = root / 'capture.sh'
+            script.write_text(helper)
 
             result = subprocess.run(['/bin/sh', str(script)], env=os.environ | {
                 'PATH': f'{commands}:{os.environ["PATH"]}',
-                'FRAME': str(frame),
                 'FRAME_COUNT': str(count),
             }, timeout=3)
 
             self.assertEqual(result.returncode, -15)
-            self.assertEqual(output.read_bytes(),
-                             b'H264-frameH264-frame')
+            self.assertEqual(frame.read_bytes(), b'PNG-1')
+            self.assertEqual(frame.stat().st_mode & 0o777, 0o644)
 
     def test_completed_boot_captures_a_screenshot(self):
         source = (Path(__file__).resolve().parents[1]

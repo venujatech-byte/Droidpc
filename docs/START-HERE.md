@@ -177,21 +177,20 @@ sudo env DROIDPC_PROBE_HOST_CAPS=1 ./scripts/probe-android-init-selinux.sh
 ```
 
 To keep the diagnostic session running in a live Wayland window instead of
-capturing only one screenshot, install GStreamer with `h264parse`,
-`avdec_h264`, `videoconvert`, `videorate`, `jpegenc` and `multifilesink`
-plugins, plus Python GTK 3 bindings, then run:
+capturing only one screenshot, install Python GTK 3 bindings, then run:
 
 ```sh
 sudo env DROIDPC_PROBE_HOST_CAPS=1 DROIDPC_PROBE_WINDOW=1 \
   ./scripts/probe-android-init-selinux.sh
 ```
 
-The window receives an H.264 screen-recording stream from Android, forwards
-clicks as taps, drags as swipes, and basic keyboard navigation. Closing the
-window or pressing Ctrl+C in that terminal stops the guest. Android data is
-preserved under `~/.local/share/droidpc-probe/data`; the startup message prints
-the resolved path. This requires a local DRM render node and Wayland session.
-It still runs the host-capability diagnostic and is for development only.
+The window refreshes from Android screenshots captured after boot completes.
+It forwards clicks as taps, drags as swipes, and basic keyboard navigation.
+Closing the window or pressing Ctrl+C in that terminal stops the guest. Android
+data is preserved under `~/.local/share/droidpc-probe/data`; the startup
+message prints the resolved path. This requires a local DRM render node and
+Wayland session. It still runs the host-capability diagnostic and is for
+development only.
 
 The run repeatedly logged `incidentd` exits because it requests
 `CAP_SYS_PTRACE`, which this diagnostic intentionally drops. BPF setup also
@@ -217,12 +216,11 @@ presentation now pass in supplied runs. Reliable repeated boots, enforcing
 SELinux, cgroup delegation, and a production start/stop lifecycle remain
 required before calling this a working container.
 
-The `DROIDPC_PROBE_WINDOW=1` mode streams Android H.264 screen recording
-through GStreamer into a GTK window and leaves init running until Ctrl-C. The
-viewer forwards basic taps, swipes, and navigation keys through a restricted
-guest input helper. The privileged end-to-end window mode has not yet been
-run. It preserves data under the user's home directory, but still uses the
-same broad diagnostic capabilities and is not the production runtime.
+The `DROIDPC_PROBE_WINDOW=1` mode refreshes a GTK window from Android
+screenshots and leaves init running until Ctrl-C. The viewer forwards basic
+taps, swipes, and navigation keys through a restricted guest input helper. It
+preserves data under the user's home directory, but still uses the same broad
+diagnostic capabilities and is not the production runtime.
 
 Common output meanings:
 

@@ -110,15 +110,13 @@ mount if vendor setup fails; injected failures after successful mounts and concu
 allocation still need runtime coverage.
 
 The next implementation milestone toward a live window is a supervised,
-persistent Android session with bounded stop/recovery. An experimental
-`DROIDPC_PROBE_WINDOW=1` mode streams Android H.264 screen recording through
-GStreamer into a GTK window, forwards taps/swipes/basic navigation keys through
-a validated guest input helper, and stops the guest on window close or Ctrl-C.
-Guest screenrecord support and required GStreamer/GTK libraries are present; the
-privileged guest/window/input run remains unverified. Window mode preserves
-guest data in `~/.local/share/droidpc-probe/data`; it still uses diagnostic
-capabilities and remains a development bridge rather than the production
-runtime.
+persistent Android session with bounded stop/recovery. The experimental
+`DROIDPC_PROBE_WINDOW=1` mode refreshes a GTK window from Android screenshots,
+forwards taps/swipes/basic navigation keys through a validated guest input
+helper, and stops the guest on window close or Ctrl-C. The privileged
+guest/window/input run remains unverified. Window mode preserves guest data in
+`~/.local/share/droidpc-probe/data`; it still uses diagnostic capabilities and
+remains a development bridge rather than the production runtime.
 
 After staging passes, run the BinderFS check in a disposable namespace:
 

@@ -48,12 +48,10 @@ wayland_display=${WAYLAND_DISPLAY:-wayland-0}
 wayland_socket=
 guest_runtime_dir=/run/user/$(id -u "$SUDO_USER")
 viewer_pid=
-gst_pid=
 guest_pid=
 monitor_pid=
-stream_fifo=
 input_fifo=
-frame_dir=
+frame_file=
 case "$wayland_display" in
     '') ;;
     /*)
@@ -84,20 +82,6 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Window mode requires host caps, DRM and a Wayland socket" >&2
         exit 1
     fi
-    command -v gst-launch-1.0 >/dev/null || {
-        echo "Window mode requires gst-launch-1.0" >&2
-        exit 1
-    }
-    command -v gst-inspect-1.0 >/dev/null || {
-        echo "Window mode requires gst-inspect-1.0" >&2
-        exit 1
-    }
-    for plugin in h264parse avdec_h264 videoconvert videorate jpegenc multifilesink; do
-        if ! gst-inspect-1.0 "$plugin" >/dev/null 2>&1; then
-            echo "Window mode requires the GStreamer $plugin plugin" >&2
-            exit 1
-        fi
-    done
     /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "3.0"); from gi.repository import Gtk, GdkPixbuf' || {
         echo "Window mode requires Python GTK 3 bindings" >&2
         exit 1
@@ -142,11 +126,6 @@ cleanup() {
         wait "$guest_pid" 2>/dev/null || true
         guest_pid=
     fi
-    if [ -n "$gst_pid" ]; then
-        kill -TERM -- "-$gst_pid" 2>/dev/null || true
-        wait "$gst_pid" 2>/dev/null || true
-        gst_pid=
-    fi
     if [ -n "$viewer_pid" ]; then
         kill -TERM -- "-$viewer_pid" 2>/dev/null || true
         wait "$viewer_pid" 2>/dev/null || true
@@ -155,14 +134,11 @@ cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
     umount "$tmp/dri" 2>/dev/null || true
-    if [ -n "$stream_fifo" ]; then
-        rm -f -- "$stream_fifo"
-    fi
     if [ -n "$input_fifo" ]; then
         rm -f -- "$input_fifo"
     fi
-    if [ -n "$frame_dir" ]; then
-        rm -rf -- "$frame_dir"
+    if [ -n "$frame_file" ]; then
+        rm -f -- "$frame_file" "$frame_file.tmp"
     fi
     rm -rf -- "$tmp"
 }
@@ -186,33 +162,26 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         "$user_home/"*) ;;
         *) echo "Android data path resolves outside the user's home" >&2; exit 1 ;;
     esac
+    frame_file=$data_dir/droidpc-window-$$.png
 else
     mkdir -p "$data_dir"
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    frame_dir=$(runuser -u "$SUDO_USER" -- mktemp -d \
-        "$guest_runtime_dir/droidpc-window.XXXXXX")
     attempt=0
     while [ "$attempt" -lt 1000 ]; do
-        stream_fifo=$guest_runtime_dir/droidpc-screen-$$-$attempt.pipe
         input_fifo=$guest_runtime_dir/droidpc-input-$$-$attempt.pipe
-        if mkfifo "$stream_fifo" 2>/dev/null; then
-            if mkfifo "$input_fifo" 2>/dev/null; then
-                break
-            fi
-            rm -f -- "$stream_fifo"
+        if mkfifo "$input_fifo" 2>/dev/null; then
+            break
         fi
-        stream_fifo=
         input_fifo=
         attempt=$((attempt + 1))
     done
-    if [ -z "$stream_fifo" ] || [ -z "$input_fifo" ]; then
-        echo "Could not create unique Android window FIFOs" >&2
+    if [ -z "$input_fifo" ]; then
+        echo "Could not create a unique Android input FIFO" >&2
         exit 1
     fi
-    chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" \
-        "$stream_fifo" "$input_fifo"
-    chmod 0600 "$stream_fifo" "$input_fifo"
+    chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" "$input_fifo"
+    chmod 0600 "$input_fifo"
 fi
 if [ -n "$render_node" ]; then
     mkdir "$tmp/dri"
@@ -415,11 +384,14 @@ else
 fi
 SH
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    cat > "$tmp/stream-screen.sh" <<'SH'
+    cat > "$tmp/capture-screen.sh" <<SH
 #!/system/bin/sh
-exec >/data/droidpc-screen.pipe
 while true; do
-    /system/bin/screenrecord --output-format=h264 --bit-rate 4000000 - || sleep 1
+    if /system/bin/screencap -p /data/${frame_file##*/}.tmp; then
+        chmod 0644 /data/${frame_file##*/}.tmp
+        mv -f /data/${frame_file##*/}.tmp /data/${frame_file##*/}
+    fi
+    sleep 0.2
 done
 SH
     cat > "$tmp/read-input.sh" <<'SH'
@@ -498,7 +470,7 @@ on property:sys.boot_completed=1
 RC
     cat >> "$tmp/probe.rc" <<'RC'
 on property:sys.boot_completed=1
-    exec_background -- /system/bin/sh /tmp/droidpc-stream-screen.sh
+    exec_background -- /system/bin/sh /tmp/droidpc-capture-screen.sh
 RC
 fi
 
@@ -561,8 +533,8 @@ if [ -n "$render_node" ]; then
     set -- "$@" --dir /dev/dri --dev-bind "$tmp/dri" /dev/dri
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    set -- "$@" --ro-bind "$tmp/stream-screen.sh" \
-        /tmp/droidpc-stream-screen.sh \
+    set -- "$@" --ro-bind "$tmp/capture-screen.sh" \
+        /tmp/droidpc-capture-screen.sh \
         --ro-bind "$tmp/read-input.sh" /tmp/droidpc-read-input.sh
 fi
 set -- "$@" \
@@ -581,9 +553,7 @@ set -- "$@" \
         --tmpfs /apex \
         --tmpfs /linkerconfig
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
-    set -- "$@" \
-        --bind "$stream_fifo" /data/droidpc-screen.pipe \
-        --bind "$input_fifo" /data/droidpc-input.pipe
+    set -- "$@" --bind "$input_fifo" /data/droidpc-input.pipe
 fi
 if [ -n "$render_node" ]; then
     for subtree in dev devices bus class; do
@@ -608,24 +578,13 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     setsid runuser -u "$SUDO_USER" -- env \
         XDG_RUNTIME_DIR="$guest_runtime_dir" \
         WAYLAND_DISPLAY="$wayland_display" \
-        gst-launch-1.0 -q filesrc location="$stream_fifo" \
-        '!' h264parse '!' avdec_h264 '!' videoconvert '!' videorate \
-        '!' 'video/x-raw,framerate=10/1' '!' jpegenc quality=80 \
-        '!' multifilesink \
-        location="$frame_dir/frame-%08d.jpg" max-files=2 sync=false \
-        > "$tmp/gstreamer.log" 2>&1 &
-    gst_pid=$!
-    setsid runuser -u "$SUDO_USER" -- env \
-        XDG_RUNTIME_DIR="$guest_runtime_dir" \
-        WAYLAND_DISPLAY="$wayland_display" \
         /usr/bin/python3 "$root/scripts/android-window.py" \
-        "$frame_dir/frame-*.jpg" "$input_fifo" \
+        "$frame_file" "$input_fifo" \
         > "$tmp/window.log" 2>&1 &
     viewer_pid=$!
     sleep 1
-    if ! kill -0 "$gst_pid" 2>/dev/null \
-        || ! kill -0 "$viewer_pid" 2>/dev/null; then
-        cat "$tmp/gstreamer.log" "$tmp/window.log" >&2
+    if ! kill -0 "$viewer_pid" 2>/dev/null; then
+        cat "$tmp/window.log" >&2
         echo "Could not start the Android display window" >&2
         exit 1
     fi
@@ -636,10 +595,9 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     guest_pid=$!
     (
         while kill -0 "$guest_pid" 2>/dev/null; do
-            if ! kill -0 "$gst_pid" 2>/dev/null \
-                || ! kill -0 "$viewer_pid" 2>/dev/null; then
+            if ! kill -0 "$viewer_pid" 2>/dev/null; then
                 echo "Android display process exited; stopping the guest." >&2
-                tail -n 80 "$tmp/gstreamer.log" "$tmp/window.log" >&2
+                tail -n 80 "$tmp/window.log" >&2
                 kill -TERM "$guest_pid" 2>/dev/null || true
                 break
             fi
