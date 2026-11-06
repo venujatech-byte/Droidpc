@@ -1,5 +1,7 @@
+mod display;
 mod frame;
 mod texture;
+mod wheel;
 
 use eframe::egui::{self, Color32, Key, PointerButton, Pos2, Rect, Vec2};
 use eframe::glow::HasContext;
@@ -26,10 +28,12 @@ type Latest = Arc<Mutex<Result<Option<Arc<Frame>>, String>>>;
 
 struct Window {
     latest: Latest,
+    display: display::Display,
     texture: Option<texture::Texture>,
     size: [usize; 2],
     input: mpsc::SyncSender<String>,
     pressed: Option<([u32; 2], Instant)>,
+    wheel: wheel::Wheel,
     started: Instant,
     activity: Arc<AtomicBool>,
     capture_thread: thread::Thread,
@@ -71,6 +75,7 @@ impl Window {
                     ..
                 } => {
                     if pressed {
+                        self.wheel = wheel::Wheel::default();
                         self.pressed = position(rect, self.size, pos)
                             .map(|p| (p, Instant::now()));
                     } else if let Some((start, when)) = self.pressed.take()
@@ -93,11 +98,28 @@ impl Window {
                     }
                 }
                 egui::Event::PointerButton {
-                    button: PointerButton::Secondary,
+                    pos,
+                    button,
                     pressed: true,
                     ..
-                } => self.send("key 4".into()),
-                egui::Event::WindowFocused(false) => self.pressed = None,
+                } if position(rect, self.size, pos).is_some() => {
+                    let code = match button {
+                        PointerButton::Secondary | PointerButton::Extra1 => {
+                            Some(4)
+                        }
+                        PointerButton::Middle => Some(3),
+                        PointerButton::Extra2 => Some(125),
+                        _ => None,
+                    };
+                    if let Some(code) = code {
+                        self.send(format!("key {code}"));
+                    }
+                }
+                egui::Event::WindowFocused(false)
+                | egui::Event::PointerGone => {
+                    self.pressed = None;
+                    self.wheel = wheel::Wheel::default();
+                }
                 egui::Event::Key {
                     key, pressed: true, ..
                 } => {
@@ -127,23 +149,29 @@ impl Window {
                         self.send(format!("text {}", text.replace(' ', "%s")));
                     }
                 }
-                egui::Event::MouseWheel { delta, .. } if delta.y != 0.0 => {
+                egui::Event::MouseWheel { unit, delta, .. } => {
                     if let Some(point) = ctx
                         .input(|i| i.pointer.hover_pos())
                         .and_then(|p| position(rect, self.size, p))
                     {
-                        let end = (point[1] as f32
-                            + delta.y.signum() * self.size[1] as f32 * 0.25)
-                            .clamp(0.0, self.size[1].saturating_sub(1) as f32)
-                            as u32;
-                        self.send(format!(
-                            "swipe {} {} {} {} 180",
-                            point[0], point[1], point[0], end
-                        ));
+                        self.wheel.add(
+                            unit,
+                            delta,
+                            point,
+                            rect.size(),
+                            self.size,
+                        );
                     }
                 }
                 _ => {}
             }
+        }
+        let now = Instant::now();
+        if let Some(command) = self.wheel.take(now, self.size) {
+            self.send(command);
+        }
+        if let Some(wait) = self.wheel.wait(now) {
+            ctx.request_repaint_after(wait);
         }
     }
 }
@@ -154,6 +182,7 @@ impl eframe::App for Window {
         ctx: &egui::Context,
         render_frame: &mut eframe::Frame,
     ) {
+        self.display.report(ctx);
         let next = {
             let mut latest = self.latest.lock().unwrap();
             match &mut *latest {
@@ -167,6 +196,7 @@ impl eframe::App for Window {
         if let Some(frame) = next {
             if self.size != frame.size {
                 self.pressed = None;
+                self.wheel = wheel::Wheel::default();
             }
             self.size = frame.size;
             if self.error.is_none() {
@@ -273,6 +303,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([960.0, 540.0])
+            .with_maximized(env::var_os("DROIDPC_DISPLAY_CONFIG").is_some())
             .with_min_inner_size([320.0, 200.0]),
         renderer: eframe::Renderer::Glow,
         hardware_acceleration: eframe::HardwareAcceleration::Required,
@@ -357,10 +388,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let capture_thread = capture.thread().clone();
             Ok(Box::new(Window {
                 latest,
+                display: display::Display::new(),
                 texture: None,
                 size: [0, 0],
                 input: sender,
                 pressed: None,
+                wheel: wheel::Wheel::default(),
                 started: Instant::now(),
                 activity,
                 capture_thread,
@@ -395,10 +428,12 @@ mod tests {
         let (sender, receiver) = mpsc::sync_channel(8);
         let mut window = Window {
             latest: Arc::new(Mutex::new(Ok(None))),
+            display: display::Display::new(),
             texture: None,
             size: [1000, 2000],
             input: sender,
             pressed: None,
+            wheel: wheel::Wheel::default(),
             started: Instant::now(),
             activity: Arc::new(AtomicBool::new(false)),
             capture_thread: thread::current(),

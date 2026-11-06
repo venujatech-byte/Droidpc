@@ -30,6 +30,27 @@ fi
 
 printf 'DROIDPC_GUEST_HOST_PID=%s\n' "$found"
 guest=/proc/$found/root
+if [ "${1:-}" = --devices ]; then
+    printf '\n--- Camera provider and network service state ---\n'
+    timeout --signal=TERM --kill-after=2s 15s nsenter --target "$found" --mount --pid --net -- \
+        /system/bin/sh -c '
+            for service in netd vendor.camera-provider-2-7-ext cameraserver; do
+                echo "$service=$(getprop init.svc.$service)"
+            done
+            ls -ln /dev/video* /dev/media* 2>/dev/null
+            ip -brief address
+            ip route
+            wm size
+            wm density
+            dumpsys ethernet
+        ' 2>&1 | head -100 || true
+    printf '\n--- Camera and network errors ---\n'
+    for log in "$guest/data/droidpc-logcat.1" "$guest/data/droidpc-logcat"; do
+        [ -f "$log" ] || continue
+        grep -Ei 'camera.*(denied|fail|error|device|external)|external.*camera|libnetd_updatable_init|BpfHandler|XfrmController|EthernetTracker|IpClient|DhcpClient' "$log" | tail -70 || true
+    done
+    exit 0
+fi
 printf '\n--- Boot state ---\n'
 cat "$guest/data/droidpc-final-state" 2>/dev/null || true
 printf '\n--- Graphics startup messages (repeated service lookups excluded) ---\n'

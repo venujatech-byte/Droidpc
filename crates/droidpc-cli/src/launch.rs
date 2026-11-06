@@ -32,6 +32,11 @@ pub fn run() -> ExitCode {
                 env::var("DROIDPC_CAPTURE_SOURCE")
                     .unwrap_or_else(|_| "snapshot".into())
             ))
+            .arg(format!(
+                "DROIDPC_PROBE_NETWORK={}",
+                env::var("DROIDPC_PROBE_NETWORK")
+                    .unwrap_or_else(|_| "1".into())
+            ))
             .arg(script)
             .exec();
         eprintln!("Could not launch Android: {error}");

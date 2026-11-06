@@ -1,6 +1,8 @@
 """Check vendor property discovery without hardcoded device branding."""
 import subprocess
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 from scripts import prepare_android_vendor_properties as config
@@ -38,6 +40,23 @@ class VendorPropertiesTests(unittest.TestCase):
             "example_brand.host.gid=1000",
             "example_brand.stub_sensors_hal=1",
         ])
+
+    def test_display_matches_window_and_rejects_invalid_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            display, vendor, build = [root / name for name in ("display", "vendor", "build")]
+            display.write_text("960 540 1920 1080 320\n")
+            vendor.write_text("host.uid=1000\n")
+            build.write_text("ro.sf.lcd_density=160\nro.other=keep\n")
+            config.configure_display("example", display, vendor, build)
+            self.assertIn("persist.example.width=960", vendor.read_text())
+            self.assertIn("persist.example.height=540", vendor.read_text())
+            self.assertEqual(build.read_text(), "ro.other=keep\nro.sf.lcd_density=320\n")
+            before = vendor.read_text()
+            display.write_text("960 540 99999 1080 320\n")
+            with self.assertRaises(ValueError):
+                config.configure_display("example", display, vendor, build)
+            self.assertEqual(vendor.read_text(), before)
 
     def test_rejects_ambiguous_or_unsafe_vendor_metadata(self):
         with self.assertRaises(ValueError):

@@ -377,3 +377,22 @@ services responded, all three tested Android UIDs opened the DRM nodes, and a
 captured lock screen confirms visible output. Next, repeat boot and cleanup,
 validate the Rust stage/BinderFS implementations, and resolve enforcing
 SELinux and cgroup delegation before production lifecycle work.
+
+### Input, display sizing and devices
+
+The Rust window opens maximized and reports its client size and display DPI
+before Android starts. The guest composer uses that size rather than enlarging
+a fixed low resolution image. Later window resizing scales the existing output;
+restart on another monitor to recalibrate resolution and density.
+
+Wheel movement is proportional, coalesced and bounded to prevent large jumps.
+Camera nodes use Android's camera group (1006), matching the external provider.
+Desktop sessions require `pasta` from the `passt` package for a private Ethernet
+link and host DNS forwarding. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
+No host routes or inbound port forwards are created. Networking logs are stored
+in the printed temporary log directory as `network.log`.
+
+After restart, use `sudo ./scripts/diagnose-android-graphics.sh --devices` once
+Android has finished booting to check framework networking and camera services.
+An Ethernet transport alone does not verify Android DNS, network validation or
+camera capture; those require a running guest check.

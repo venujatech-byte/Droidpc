@@ -77,7 +77,35 @@ def prepare(image, user, uid, gid):
     return brand, f"/vendor/{filename}", properties
 
 
+def configure_display(namespace, config, vendor_properties, build_properties):
+    if not NAME.fullmatch(namespace):
+        raise ValueError("invalid vendor display namespace")
+    with open(config) as stream:
+        text = stream.read(256)
+    fields = text.split()
+    if len(fields) != 5 or not all(re.fullmatch(r"[0-9]{1,5}", value) for value in fields):
+        raise ValueError("window display configuration is not ready")
+    width, height, pixel_width, pixel_height, density = map(int, fields)
+    if not (320 <= width <= 8192 and 200 <= height <= 8192 and
+            1 <= pixel_width <= 8192 and 1 <= pixel_height <= 8192 and
+            pixel_width * pixel_height <= 16_777_216 and 80 <= density <= 640):
+        raise ValueError("invalid window display dimensions")
+    with open(vendor_properties, "a") as stream:
+        stream.write(f"persist.{namespace}.width={width}\npersist.{namespace}.height={height}\n")
+    path = Path(build_properties)
+    contents = [line for line in path.read_text().splitlines() if not line.startswith("ro.sf.lcd_density=")]
+    path.write_text("\n".join(contents + [f"ro.sf.lcd_density={density}", ""]))
+    print(f"Android native display target: {pixel_width}x{pixel_height}, density {density}")
+
+
 def main(args):
+    if len(args) == 5 and args[0] == "--display":
+        try:
+            configure_display(*args[1:])
+        except (OSError, ValueError) as error:
+            print(f"Could not configure guest display: {error}", file=sys.stderr)
+            return 1
+        return 0
     if len(args) != 5:
         raise SystemExit(
             "usage: prepare_android_vendor_properties.py "

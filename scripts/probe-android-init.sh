@@ -28,6 +28,23 @@ case "$capture_source" in
 esac
 window_binary=$(pwd -P)/target/release/droidpc-window
 
+network_enabled=${DROIDPC_PROBE_NETWORK:-${DROIDPC_PROBE_WINDOW:-0}}
+case "$network_enabled" in
+    0|1) ;;
+    *) echo "DROIDPC_PROBE_NETWORK must be 0 or 1" >&2; exit 1 ;;
+esac
+if [ "$network_enabled" = 1 ]; then
+    if [ "${DROIDPC_PROBE_WINDOW:-0}" != 1 ]; then
+        echo "Guest networking requires window mode" >&2
+        exit 1
+    fi
+    command -v pasta >/dev/null || {
+        echo "Internet access requires pasta (the passt package); use DROIDPC_PROBE_NETWORK=0 for offline mode" >&2
+        exit 1
+    }
+    command -v nsenter >/dev/null
+fi
+
 if [ "${DROIDPC_PROBE_BPF_MEMLOCK:-0}" = 1 ] && ! ulimit -l 1048576; then
     echo "Could not set the probe's locked-memory limit to 1 GiB" >&2
     exit 1
@@ -64,6 +81,8 @@ guest_runtime_path=${guest_runtime_dir#/run/}
 viewer_pid=
 guest_pid=
 monitor_pid=
+network_pid=
+display_config=
 stream_fifo=
 input_fifo=
 case "$wayland_display" in
@@ -140,6 +159,11 @@ if [ -z "$data_dir" ]; then
 fi
 
 cleanup() {
+    if [ -n "$network_pid" ]; then
+        kill -TERM "$network_pid" 2>/dev/null || true
+        wait "$network_pid" 2>/dev/null || true
+        network_pid=
+    fi
     if [ -n "$monitor_pid" ]; then
         kill -TERM "$monitor_pid" 2>/dev/null || true
         wait "$monitor_pid" 2>/dev/null || true
@@ -158,6 +182,9 @@ cleanup() {
     umount "$tmp/vendor" 2>/dev/null || true
     umount "$tmp/system" 2>/dev/null || true
     umount "$tmp/dri" 2>/dev/null || true
+    if [ -n "$display_config" ]; then
+        rm -f -- "$display_config"
+    fi
     if [ -n "$input_fifo" ]; then
         rm -f -- "$input_fifo"
     fi
@@ -216,6 +243,11 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" \
         "$stream_fifo" "$input_fifo"
     chmod 0600 "$stream_fifo" "$input_fifo"
+    if [ "$window_backend" = rust ]; then
+        display_config=$(mktemp "$guest_runtime_dir/droidpc-display.XXXXXX")
+        chown "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" "$display_config"
+        chmod 0600 "$display_config"
+    fi
 fi
 if [ -n "$render_node" ]; then
     mkdir "$tmp/dri"
@@ -259,7 +291,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         camera_minor=$((0x${camera_numbers#*:}))
         mkdir -p "$tmp/camera"
         mknod "$tmp/camera/$camera_name" c "$camera_major" "$camera_minor"
-        chown 0:1047 "$tmp/camera/$camera_name"
+        chown 0:1006 "$tmp/camera/$camera_name"
         chmod 0660 "$tmp/camera/$camera_name"
         camera_nodes="$camera_nodes $camera_name"
     done
@@ -598,7 +630,7 @@ mount -t ext4 -o loop,ro,norecovery "$vendor" "$tmp/vendor"
 printf '4\n' > "$tmp/proc-sys/kernel/kptr_restrict"
 
 status=0
-set -- /usr/bin/bwrap \
+set -- /usr/bin/bwrap --info-fd 3 \
         --unshare-pid --unshare-ipc --unshare-uts \
         --unshare-net --unshare-cgroup \
         --die-with-parent --as-pid-1 \
@@ -686,6 +718,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
             XDG_RUNTIME_DIR="$guest_runtime_dir" WAYLAND_DISPLAY="$wayland_display" \
             DROIDPC_WINDOW_FPS="${DROIDPC_WINDOW_FPS:-60}" \
             DROIDPC_CAPTURE_SOURCE="$capture_source" \
+            DROIDPC_DISPLAY_CONFIG="$display_config" \
             "$window_binary" "$stream_fifo" "$input_fifo" \
             > "$tmp/window.log" 2>&1 &
     else
@@ -704,11 +737,61 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         echo "Could not start the Android display window" >&2
         exit 1
     fi
+    if [ "$window_backend" = rust ]; then
+        attempt=0
+        while ! /usr/bin/python3 "$root/scripts/prepare_android_vendor_properties.py" \
+            --display "$vendor_namespace" "$display_config" "$tmp/vendor-properties.prop" \
+            "$tmp/system-build.prop" 2>"$tmp/display.log"; do
+            attempt=$((attempt + 1))
+            if [ "$attempt" -ge 20 ]; then
+                cat "$tmp/display.log" >&2
+                echo "Using the guest's original display resolution" >&2
+                break
+            fi
+            sleep 0.1
+        done
+    fi
     echo "Android window active; click to tap, drag to swipe, use keyboard navigation."
     echo "Guest data is stored at $data_dir."
     echo "Press Ctrl-C here to stop the guest."
-    "$@" &
+    "$@" 3>"$tmp/guest-info.json" &
     guest_pid=$!
+    if [ "$network_enabled" = 1 ]; then
+        attempt=0
+        guest_init=
+        while [ "$attempt" -lt 50 ] && kill -0 "$guest_pid" 2>/dev/null; do
+            guest_init=$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["child-pid"])' "$tmp/guest-info.json" 2>/dev/null || true)
+            [ -n "$guest_init" ] && break
+            sleep 0.1
+            attempt=$((attempt + 1))
+        done
+        case "$guest_init" in
+            ''|*[!0-9]*) echo "Could not identify the guest network namespace" >&2; exit 1 ;;
+        esac
+        if [ "$(readlink /proc/self/ns/net)" = "$(readlink "/proc/$guest_init/ns/net")" ]; then
+            echo "Refusing to configure the host network namespace" >&2
+            exit 1
+        fi
+        host_dns=$(awk '$1 == "nameserver" { print $2; exit }' /etc/resolv.conf)
+        if [ -z "$host_dns" ]; then
+            echo "No host DNS resolver configured" >&2
+            exit 1
+        fi
+        pasta --foreground --netns "/proc/$guest_init/ns/net" \
+            --runas "$(id -u "$SUDO_USER"):$(id -g "$SUDO_USER")" \
+            --config-net --ns-ifname eth0 --no-map-gw \
+            --dns-forward 10.0.2.3 --dns-host "$host_dns" --dns 10.0.2.3 --dhcp-dns \
+            --tcp-ports none --udp-ports none --tcp-ns none --udp-ns none \
+            > "$tmp/network.log" 2>&1 &
+        network_pid=$!
+        sleep 0.5
+        if ! kill -0 "$network_pid" 2>/dev/null; then
+            cat "$tmp/network.log" >&2
+            echo "Guest network startup failed" >&2
+            exit 1
+        fi
+        echo "Guest Ethernet link started; network log: $tmp/network.log"
+    fi
     (
         while kill -0 "$guest_pid" 2>/dev/null; do
             if ! kill -0 "$viewer_pid" 2>/dev/null; then
@@ -727,7 +810,7 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     wait "$monitor_pid" 2>/dev/null || true
     monitor_pid=
 else
-    timeout --signal=TERM --kill-after=2s 180s "$@" || status=$?
+    timeout --signal=TERM --kill-after=2s 180s "$@" 3>"$tmp/guest-info.json" || status=$?
 fi
 
 echo "INIT_PROBE_STATUS=$status"
