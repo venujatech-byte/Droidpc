@@ -47,6 +47,7 @@ fi
 wayland_display=${WAYLAND_DISPLAY:-wayland-0}
 wayland_socket=
 guest_runtime_dir=/run/user/$(id -u "$SUDO_USER")
+guest_runtime_path=${guest_runtime_dir#/run/}
 viewer_pid=
 guest_pid=
 monitor_pid=
@@ -75,6 +76,9 @@ case "$wayland_display" in
         fi
         ;;
 esac
+if [ -n "$wayland_socket" ]; then
+    wayland_display=${wayland_socket##*/}
+fi
 
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     if [ "${DROIDPC_PROBE_HOST_CAPS:-0}" != 1 ] \
@@ -149,6 +153,11 @@ trap 'exit 143' TERM
 
 mkdir -p "$tmp/system" "$tmp/vendor" "$tmp/proc-sys/kernel"
 mkdir -p "$tmp/sys" "$tmp/sys/fs"
+if [ -n "$wayland_socket" ]; then
+    mkdir -p "$tmp/run/$guest_runtime_path"
+    touch "$tmp/run/$guest_runtime_path/$wayland_display"
+    chmod 0755 "$tmp/run" "$tmp/run/user" "$tmp/run/$guest_runtime_path"
+fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     if [ ! -d "$data_dir" ]; then
         runuser -u "$SUDO_USER" -- mkdir -p "$data_dir"
@@ -531,6 +540,12 @@ set -- "$@" \
 if [ -n "$render_node" ]; then
     # Regular binds/remount-ro add nodev; these are disposable guest nodes.
     set -- "$@" --dir /dev/dri --dev-bind "$tmp/dri" /dev/dri
+fi
+if [ -n "$wayland_socket" ]; then
+    set -- "$@" \
+        --bind "$tmp/run" /run \
+        --ro-bind "$wayland_socket" "$guest_runtime_dir/$wayland_display" \
+        --setenv WAYLAND_DISPLAY "$wayland_display"
 fi
 if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
     set -- "$@" --ro-bind "$tmp/capture-screen.sh" \

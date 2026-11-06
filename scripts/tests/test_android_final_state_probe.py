@@ -17,6 +17,14 @@ class FinalStateProbeTests(unittest.TestCase):
             source.index('read-profile.sh $vendor_namespace'),
         )
 
+    def test_guest_receives_host_wayland_socket_for_graphics_composer(self):
+        source = (Path(__file__).resolve().parents[1]
+                  / 'probe-android-init.sh').read_text()
+
+        self.assertIn('"$wayland_socket" "$guest_runtime_dir/$wayland_display"',
+                      source)
+        self.assertIn('--setenv WAYLAND_DISPLAY "$wayland_display"', source)
+
     def test_window_input_fifo_collision_retries_without_removing_existing_path(self):
         source = (Path(__file__).resolve().parents[1]
                   / 'probe-android-init.sh').read_text()
