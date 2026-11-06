@@ -3,6 +3,7 @@ module droidpc_probe 1.0;
 require {
     type unconfined_t;
     type bin_t;
+    type pasta_exec_t;
     role unconfined_r;
     attribute domain;
     class process { setexec transition };
@@ -17,3 +18,6 @@ allow unconfined_t self:process setexec;
 allow unconfined_t droidpc_probe_t:process transition;
 allow droidpc_probe_t bin_t:file { entrypoint execute execute_no_trans getattr map open read };
 permissive droidpc_probe_t;
+
+# Keep the namespace helper in the same temporary diagnostic domain as the guest.
+allow droidpc_probe_t pasta_exec_t:file { entrypoint execute execute_no_trans getattr map open read };

@@ -781,12 +781,15 @@ if [ "${DROIDPC_PROBE_WINDOW:-0}" = 1 ]; then
         # Pin the namespace before pasta drops ptrace capabilities needed by /proc.
         touch "$tmp/network.ns"
         mount --bind "/proc/$guest_init/ns/net" "$tmp/network.ns"
-        pasta --foreground --netns "$tmp/network.ns" \
+        set -- /usr/bin/pasta --foreground --netns "$tmp/network.ns" \
             --runas 0:0 \
             --config-net --ns-ifname eth0 --no-map-gw \
             --dns-forward 10.0.2.3 --dns-host "$host_dns" --dns 10.0.2.3 --dhcp-dns \
-            --tcp-ports none --udp-ports none --tcp-ns none --udp-ns none \
-            > "$tmp/network.log" 2>&1 &
+            --tcp-ports none --udp-ports none --tcp-ns none --udp-ns none
+        if [ "${DROIDPC_PROBE_SELINUX_DOMAIN:-0}" = 1 ]; then
+            set -- /usr/bin/runcon -t droidpc_probe_t -- "$@"
+        fi
+        "$@" > "$tmp/network.log" 2>&1 &
         network_pid=$!
         sleep 0.5
         if ! kill -0 "$network_pid" 2>/dev/null; then

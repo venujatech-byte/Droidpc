@@ -391,7 +391,9 @@ Desktop sessions require `pasta` from the `passt` package for a private Ethernet
 link and host DNS forwarding. Its helper retains UID 0 to enter the root-owned
 guest network namespace, then applies its own capability and syscall sandbox.
 The launcher pins the namespace with a private bind mount before starting the
-helper, avoiding restricted process namespace paths; cleanup releases the mount. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
+helper, avoiding restricted process namespace paths; cleanup releases the mount.
+With the SELinux wrapper, the helper enters the same temporary diagnostic domain
+as Android so the host helper policy does not block namespace entry. Set `DROIDPC_PROBE_NETWORK=0` for offline operation.
 No host routes or inbound port forwards are created. Networking logs are stored
 in the printed temporary log directory as `network.log`.
 
